@@ -50,9 +50,15 @@ HTML / CSS / JavaScript のみで実装しており、ビルドツールもフ�
 
 ## セットアップ
 
-前提: Node.js 18 以上と Cloudflare アカウント。
+前提:
+
+- Cloudflare アカウント（無料プランで足ります）
+- Node.js 18 以上
+- iPadOS 16.4 以上の iPad（通知を使う場合。これ未満では Web Push が使えません）
 
 ```bash
+git clone https://github.com/chikin80100/schoolscheduleapp.git
+cd schoolscheduleapp
 npm install
 npx wrangler login
 ```
@@ -63,21 +69,39 @@ npx wrangler login
 npx wrangler d1 create timetable
 ```
 
-表示された `database_id` を `wrangler.toml` の `REPLACE_WITH_YOUR_D1_DATABASE_ID` に書き込み、
-テーブルを作成します。
+表示された `database_id` を `wrangler.toml` の `REPLACE_WITH_YOUR_D1_DATABASE_ID` に書き込みます。
+
+### 2. 連絡先を書き換える
+
+`wrangler.toml` の `VAPID_SUBJECT` を自分の連絡先（`mailto:` か `https:`）にします。
+Web Push の仕様で必須の項目です。`[vars]` なので、後から変える場合は再デプロイが要ります。
+
+### 3. デプロイする
 
 ```bash
-npm run db:init          # 本番
-npm run db:init:local    # ローカル開発用
+npm run deploy
 ```
 
-同期に対応する前のスキーマでテーブルを作ってしまっている場合は、先に古いものを削除してください。
+初回は workers.dev のサブドメイン登録を聞かれることがあります。完了すると
+`https://school-timetable.<サブドメイン>.workers.dev` の形の URL が表示されるので、控えておきます。
+iPad で開くのはこの URL です。
+
+### 4. テーブルを作る
 
 ```bash
-npx wrangler d1 execute timetable --command "DROP TABLE IF EXISTS schedules; DROP TABLE IF EXISTS devices;"
+npm run db:init
 ```
 
-### 2. VAPID 鍵を作る
+`wrangler d1 execute` は `--remote` を付けないとローカルの DB を対象にするため、
+このスクリプトには `--remote` が入っています。
+
+同期に対応する前のスキーマでテーブルを作ってしまっている場合は、先に削除してください。
+
+```bash
+npm run db:reset
+```
+
+### 5. VAPID 鍵を作る
 
 Web Push の送信元を証明する鍵ペアです。
 
@@ -92,27 +116,24 @@ npx wrangler secret put VAPID_PUBLIC_KEY
 npx wrangler secret put VAPID_PRIVATE_KEY
 ```
 
-`wrangler.toml` の `VAPID_SUBJECT` を自分の連絡先（`mailto:` か `https:`）に書き換えてください。
-ローカル開発では、リポジトリ直下に `.dev.vars` を作って同じ 2 つを書きます（このファイルは Git 管理外）。
+シークレットを登録すると新しいバージョンが自動で配信されるので、再デプロイは不要です。
+
+### ローカルで動かす場合
+
+```bash
+npm run db:init:local    # ローカル DB にテーブルを作る（初回のみ）
+npm run dev              # http://127.0.0.1:8787
+```
+
+`.dev.vars` をリポジトリ直下に作り、`npm run keys` で作った鍵を書いておきます
+（このファイルは Git 管理外）。
 
 ```
 VAPID_PUBLIC_KEY=B...
 VAPID_PRIVATE_KEY=...
 ```
 
-### 3. ローカルで動かす
-
-```bash
-npm run dev            # http://127.0.0.1:8787
-```
-
 静的ファイルの配信・API・Cron がすべて 1 つの Worker で動きます。
-
-### 4. デプロイ
-
-```bash
-npm run deploy
-```
 
 ## 複数端末で同期する
 
@@ -138,9 +159,9 @@ npm run deploy
 
 ## iPad でアプリとして使う
 
-1. Safari でデプロイした URL を開く
+1. **Safari で**デプロイした URL を開く（他のブラウザではホーム画面に追加しても通知が使えません）
 2. 共有ボタン → **ホーム画面に追加**
-3. ホーム画面のアイコンから起動する
+3. **ホーム画面のアイコンから起動する**
 4. 右上の ⚙ → 専攻を選ぶ → **通知を有効にする** → **テスト通知** で受信を確認
 5. 他の端末と共有したい場合は、同じ ⚙ の **複数端末で同期** から同期コードを発行する
 
