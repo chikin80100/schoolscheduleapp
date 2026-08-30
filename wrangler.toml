@@ -9,7 +9,7 @@ binding = "ASSETS"
 
 # 購読情報と時間割の保存先。`wrangler d1 create timetable` で作った ID に置き換える。
 [[d1_databases]]
-binding = "DB"
+binding = "timetable"
 database_name = "timetable"
 database_id = "cd5e0eab-1b40-458a-a530-07b0735e751b"
 
