@@ -2,10 +2,10 @@
 
 import { formatMinutes, getPeriod, DAY_NAMES, fromDateKey } from './schedule.js';
 import { MAJORS, PRESETS, presetsForMajor, resolveSubject } from './subjects.js';
-import { lessonAt } from './timetable.js';
+import { eventsOn, lessonAt } from './timetable.js';
 import { getState, update } from './store.js';
 import { escapeHtml } from './view-week.js';
-import { lessonsOfDate } from './view-month.js';
+import { DEFAULT_EVENT_COLOR, lessonsOfDate } from './view-month.js';
 
 const dialog = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheet-body');
@@ -186,49 +186,157 @@ export function openSubjectPicker(title, onPick) {
   });
 }
 
-/** 月表示で日をタップしたときの、その日の一覧シート。 */
+/** 月表示で日をタップしたときの、その日のシート（予定と授業）。 */
 export function openDaySheet(dateKey) {
   const date = fromDateKey(dateKey);
   const state = getState();
   const lessons = lessonsOfDate(state, date);
   const title = `${date.getMonth() + 1}月${date.getDate()}日（${DAY_NAMES[date.getDay()]}）`;
 
-  if (!lessons.length) {
-    openSheet(title, '<p class="sheet-sub">この日は授業がありません。</p>');
-    return;
-  }
+  const events = eventsOn(state, dateKey);
+  const eventRows = events.length
+    ? events
+        .map(
+          (event) => `<div class="event-row" style="--event-color:${escapeHtml(event.color || DEFAULT_EVENT_COLOR)}">
+            <button type="button" class="event-main" data-edit-event="${escapeHtml(event.id)}">
+              <span class="event-time">${escapeHtml(event.time || '終日')}</span>
+              <span class="event-title">${escapeHtml(event.title)}</span>
+            </button>
+            <button type="button" class="icon-button is-quiet" data-delete-event="${escapeHtml(event.id)}"
+              aria-label="${escapeHtml(event.title)} を削除">✕</button>
+          </div>`,
+        )
+        .join('')
+    : '<p class="sheet-sub">予定はありません。</p>';
 
-  const rows = lessons
-    .map((lesson) => {
-      const info = getPeriod(lesson.period);
-      const label =
-        lesson.status === 'cancelled'
-          ? '<span class="day-row-name is-cancelled">休講</span>'
-          : lesson.subject
-            ? `<span class="day-row-name" style="--subject-color:${lesson.subject.color}">
-                 ${escapeHtml(lesson.subject.name)}
-                 ${lesson.subject.room ? `<small>${escapeHtml(lesson.subject.room)}</small>` : ''}
-               </span>`
-            : '<span class="day-row-name is-empty">未登録</span>';
-      return `<div class="day-row">
-        <span class="day-row-time"><b>${lesson.period}</b>${formatMinutes(info.startMinutes)}</span>
-        ${label}
-        <button type="button" class="button is-small" data-toggle="${lesson.period}">
-          ${lesson.status === 'cancelled' ? '戻す' : '休講'}</button>
-      </div>`;
-    })
-    .join('');
+  const lessonRows = lessons.length
+    ? lessons
+        .map((lesson) => {
+          const info = getPeriod(lesson.period);
+          const label =
+            lesson.status === 'cancelled'
+              ? '<span class="day-row-name is-cancelled">休講</span>'
+              : lesson.subject
+                ? `<span class="day-row-name" style="--subject-color:${lesson.subject.color}">
+                     ${escapeHtml(lesson.subject.name)}
+                     ${lesson.subject.room ? `<small>${escapeHtml(lesson.subject.room)}</small>` : ''}
+                   </span>`
+                : '<span class="day-row-name is-empty">未登録</span>';
+          return `<div class="day-row">
+            <span class="day-row-time"><b>${lesson.period}</b>${formatMinutes(info.startMinutes)}</span>
+            ${label}
+            <button type="button" class="button is-small" data-toggle="${lesson.period}">
+              ${lesson.status === 'cancelled' ? '戻す' : '休講'}</button>
+          </div>`;
+        })
+        .join('')
+    : '<p class="sheet-sub">この日は授業がありません。</p>';
 
-  openSheet(title, `<div class="day-list">${rows}</div>`, (root) => {
-    root.querySelectorAll('[data-toggle]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const period = Number(button.dataset.toggle);
-        const current = getState().overrides?.[dateKey]?.[String(period)];
-        setOverride(dateKey, period, current?.type === 'cancelled' ? null : { type: 'cancelled' });
-        openDaySheet(dateKey); // 再描画
+  openSheet(
+    title,
+    `
+    <section class="settings-block">
+      <h3>予定</h3>
+      <div class="event-list">${eventRows}</div>
+      <div class="sheet-actions">
+        <button type="button" class="button is-primary" id="event-add">予定を追加</button>
+      </div>
+    </section>
+
+    <section class="settings-block">
+      <h3>授業</h3>
+      <div class="day-list">${lessonRows}</div>
+    </section>`,
+    (root) => {
+      root.querySelectorAll('[data-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const period = Number(button.dataset.toggle);
+          const current = getState().overrides?.[dateKey]?.[String(period)];
+          setOverride(dateKey, period, current?.type === 'cancelled' ? null : { type: 'cancelled' });
+          openDaySheet(dateKey); // 再描画
+        });
       });
-    });
-  });
+
+      root.querySelector('#event-add').addEventListener('click', () => openEventEditor(dateKey, null));
+
+      root.querySelectorAll('[data-edit-event]').forEach((button) => {
+        button.addEventListener('click', () => openEventEditor(dateKey, button.dataset.editEvent));
+      });
+
+      root.querySelectorAll('[data-delete-event]').forEach((button) => {
+        button.addEventListener('click', () => {
+          removeEvent(dateKey, button.dataset.deleteEvent);
+          openDaySheet(dateKey);
+        });
+      });
+    },
+  );
+}
+
+/** 予定の追加・編集。保存すると日のシートに戻る。 */
+export function openEventEditor(dateKey, eventId) {
+  const date = fromDateKey(dateKey);
+  const existing = eventId ? eventsOn(getState(), dateKey).find((e) => e.id === eventId) : null;
+  const color = existing?.color || DEFAULT_EVENT_COLOR;
+
+  const swatches = COLOR_CHOICES.map(
+    (choice) => `<button type="button" class="swatch${choice === color ? ' is-active' : ''}"
+      style="background:${choice}" data-color="${choice}" aria-label="色 ${choice}"></button>`,
+  ).join('');
+
+  openSheet(
+    `${date.getMonth() + 1}月${date.getDate()}日 の予定`,
+    `
+    <label class="field">
+      <span class="field-label">予定</span>
+      <input id="event-title" type="text" placeholder="例: 体育祭、三者面談" maxlength="80"
+        value="${escapeHtml(existing?.title ?? '')}">
+    </label>
+    <label class="field">
+      <span class="field-label">時刻<small>（空にすると終日）</small></span>
+      <input id="event-time" type="time" value="${escapeHtml(existing?.time ?? '')}">
+    </label>
+    <div class="field">
+      <span class="field-label">色</span>
+      <div class="swatches">${swatches}</div>
+    </div>
+    <div class="sheet-actions">
+      <button type="button" class="button is-primary" id="event-save">保存</button>
+      <button type="button" class="button" id="event-cancel">やめる</button>
+    </div>`,
+    (root) => {
+      let picked = color;
+      root.querySelectorAll('.swatch').forEach((swatch) => {
+        swatch.addEventListener('click', () => {
+          picked = swatch.dataset.color;
+          root.querySelectorAll('.swatch').forEach((s) => s.classList.remove('is-active'));
+          swatch.classList.add('is-active');
+        });
+      });
+
+      const save = () => {
+        const title = root.querySelector('#event-title').value.trim();
+        if (!title) {
+          root.querySelector('#event-title').focus();
+          return;
+        }
+        saveEvent(dateKey, {
+          id: eventId ?? crypto.randomUUID(),
+          title,
+          time: root.querySelector('#event-time').value,
+          color: picked,
+        });
+        openDaySheet(dateKey);
+      };
+
+      root.querySelector('#event-save').addEventListener('click', save);
+      root.querySelector('#event-cancel').addEventListener('click', () => openDaySheet(dateKey));
+      root.querySelector('#event-title').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') save();
+      });
+      root.querySelector('#event-title').focus();
+    },
+  );
 }
 
 /* ------------------------------------------------------------------- 更新関数 */
@@ -240,6 +348,26 @@ export function setTemplate(day, period, subjectId) {
     const periods = state.template[dayKey] ?? (state.template[dayKey] = {});
     if (subjectId) periods[String(period)] = subjectId;
     else delete periods[String(period)];
+  });
+}
+
+/** 予定を追加または上書きする。 */
+export function saveEvent(dateKey, event) {
+  update((state) => {
+    const list = state.events[dateKey] ?? (state.events[dateKey] = []);
+    const index = list.findIndex((item) => item.id === event.id);
+    if (index >= 0) list[index] = event;
+    else list.push(event);
+  });
+}
+
+/** 予定を消す。その日の予定が無くなったらキーごと消す。 */
+export function removeEvent(dateKey, eventId) {
+  update((state) => {
+    const list = state.events[dateKey];
+    if (!list) return;
+    state.events[dateKey] = list.filter((item) => item.id !== eventId);
+    if (!state.events[dateKey].length) delete state.events[dateKey];
   });
 }
 

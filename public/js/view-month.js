@@ -1,10 +1,14 @@
 /**
- * 月表示。日付だけのカレンダーを描く。
+ * 月表示。授業は出さず、日付と登録した予定だけを並べる。
  * 授業の中身は日をタップして開く詳細シート（editor.js の openDaySheet）で見る。
  */
 
 import { SCHOOL_DAYS, periodCountForDay, toDateKey } from './schedule.js';
-import { lessonAt } from './timetable.js';
+import { eventsOn, lessonAt } from './timetable.js';
+import { escapeHtml } from './view-week.js';
+
+/** 予定の色が未指定のときに使う既定色。 */
+export const DEFAULT_EVENT_COLOR = 'hsl(212 58% 50%)';
 
 const WEEK_HEADS = ['月', '火', '水', '木', '金', '土', '日'];
 
@@ -52,8 +56,16 @@ export function renderMonth(container, state, anchorDate) {
       .filter(Boolean)
       .join(' ');
 
+    const chips = eventsOn(state, key)
+      .map(
+        (event) => `<span class="month-event" style="--event-color:${escapeHtml(event.color || DEFAULT_EVENT_COLOR)}">
+          ${event.time ? `<b>${escapeHtml(event.time)}</b>` : ''}${escapeHtml(event.title)}</span>`,
+      )
+      .join('');
+
     return `<button type="button" class="${classes}" data-date="${key}">
       <span class="month-date">${date.getDate()}</span>
+      <span class="month-events">${chips}</span>
     </button>`;
   });
 

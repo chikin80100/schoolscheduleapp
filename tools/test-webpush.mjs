@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { sendPush, base64UrlToBytes, bytesToBase64Url } from '../worker/webpush.js';
 import { dispatchNotifications, jstNow, buildNotification, normalizeCode } from '../worker/index.js';
 import { PERIODS, formatMinutes } from '../public/js/schedule.js';
+import { eventsOn, normalizeState } from '../public/js/timetable.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -259,6 +260,45 @@ assert.equal(normalizeCode('ABCDEFGHJKL'), null);
 assert.equal(normalizeCode('ABCDEFGHI0'), null);
 assert.equal(normalizeCode(''), null);
 assert.equal(normalizeCode(undefined), null);
+
+/* ------------------------------------------------------------ 任意の予定 */
+
+const withEvents = normalizeState({
+  events: {
+    '2026-09-10': [
+      { title: ' 体育祭 ', time: '09:00', color: 'hsl(0 62% 50%)' },
+      { title: '短縮授業' },
+      { title: '   ' }, // 題名が空なので捨てる
+      'ごみ', // オブジェクトですらないので捨てる
+      { title: '面談', time: '25:99' }, // 時刻が不正なら終日にする
+    ],
+    'bad-key': [{ title: 'x' }], // 日付キーの形式が違うので捨てる
+    '2026-09-11': [], // 空の日はキーごと持たない
+  },
+});
+
+const day = withEvents.events['2026-09-10'];
+assert.equal(day.length, 3);
+assert.equal(day[0].title, '体育祭', '前後の空白が落ちていません');
+assert.equal(day[2].time, '', '不正な時刻が終日になっていません');
+assert.ok(day.every((event) => typeof event.id === 'string' && event.id), 'id が振られていません');
+assert.equal(withEvents.events['bad-key'], undefined);
+assert.equal(withEvents.events['2026-09-11'], undefined);
+
+// 終日を先に、時刻のあるものはその順に並べる
+assert.deepEqual(
+  eventsOn(withEvents, '2026-09-10').map((event) => `${event.time}|${event.title}`),
+  ['|短縮授業', '|面談', '09:00|体育祭'],
+);
+
+// 予定を入れても通知の判定には影響しない（通知は授業だけ）
+const stateWithEvent = { ...state, events: { '2026-09-03': [{ id: 'e1', title: '体育祭', time: '', color: '' }] } };
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('device-1', JSON.stringify(stateWithEvent))]) },
+  thursdayMorning,
+);
+assert.equal(sent.length, 1);
+assert.equal(sent[0].subject, '電子回路');
 
 /* ------------------------------------------------------------ 時程の確認 */
 

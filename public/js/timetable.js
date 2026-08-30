@@ -14,8 +14,39 @@ export function emptyState() {
     subjects: {},
     template: {},
     overrides: {},
+    events: {},
     settings: { leadMinutes: 10, notifyEnabled: false, defaultView: 'week' },
   };
+}
+
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** 予定 1 件を安全な形に整える。題名が無いものは捨てる。 */
+function normalizeEvent(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  if (!title) return null;
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : crypto.randomUUID(),
+    title: title.slice(0, 80),
+    time: typeof raw.time === 'string' && TIME_PATTERN.test(raw.time) ? raw.time : '',
+    color: typeof raw.color === 'string' && raw.color ? raw.color : '',
+  };
+}
+
+/**
+ * その日の予定を並べ替えて返す。
+ * 時刻の無いもの（終日）を先に、時刻のあるものはその順に並べる。
+ */
+export function eventsOn(state, dateKey) {
+  const list = state.events?.[dateKey] ?? [];
+  return [...list].sort((a, b) => {
+    if (!a.time && !b.time) return 0;
+    if (!a.time) return -1;
+    if (!b.time) return 1;
+    return a.time.localeCompare(b.time);
+  });
 }
 
 /**
@@ -38,7 +69,7 @@ export function normalizeState(raw) {
 
   const overrides = {};
   for (const [dateKey, periods] of Object.entries(raw.overrides ?? {})) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !periods || typeof periods !== 'object') continue;
+    if (!DATE_KEY_PATTERN.test(dateKey) || !periods || typeof periods !== 'object') continue;
     const entries = {};
     for (const [period, value] of Object.entries(periods)) {
       if (!value || typeof value !== 'object') continue;
@@ -48,6 +79,13 @@ export function normalizeState(raw) {
       }
     }
     if (Object.keys(entries).length) overrides[dateKey] = entries;
+  }
+
+  const events = {};
+  for (const [dateKey, list] of Object.entries(raw.events ?? {})) {
+    if (!DATE_KEY_PATTERN.test(dateKey) || !Array.isArray(list)) continue;
+    const items = list.map(normalizeEvent).filter(Boolean).slice(0, 50);
+    if (items.length) events[dateKey] = items;
   }
 
   const subjects = {};
@@ -70,6 +108,7 @@ export function normalizeState(raw) {
     subjects,
     template,
     overrides,
+    events,
     settings: {
       leadMinutes: Number.isFinite(lead) && lead > 0 && lead <= 60 ? Math.round(lead) : 10,
       notifyEnabled: settings.notifyEnabled === true,

@@ -1,6 +1,6 @@
 /* Service Worker: アプリシェルのキャッシュとプッシュ通知の表示。 */
 
-const CACHE = 'timetable-v2';
+const CACHE = 'timetable-v3';
 const SHELL = [
   '/',
   '/index.html',
