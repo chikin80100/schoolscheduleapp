@@ -69,7 +69,15 @@ npx wrangler login
 npx wrangler d1 create timetable
 ```
 
-表示された `database_id` を `wrangler.toml` の `REPLACE_WITH_YOUR_D1_DATABASE_ID` に書き込みます。
+表示された `database_id`（`8f2c1a4b-9e3d-4f7a-b1c2-3d4e5f6a7b8c` のような 36 文字）を
+`wrangler.toml` の `REPLACE_WITH_YOUR_D1_DATABASE_ID` に書き込みます。**この置き換えを忘れると、
+デプロイも鍵の登録も失敗します。**
+
+書き換えたか自信がないときは、次で確認できます。
+
+```bash
+npm run check
+```
 
 ### 2. 連絡先を書き換える
 
@@ -109,11 +117,10 @@ Web Push の送信元を証明する鍵ペアです。
 npm run keys
 ```
 
-出力された 2 つの値を登録します。
+出力された 2 つの値を登録します。順に貼り付けを求められます。
 
 ```bash
-npx wrangler secret put VAPID_PUBLIC_KEY
-npx wrangler secret put VAPID_PRIVATE_KEY
+npm run secrets
 ```
 
 シークレットを登録すると新しいバージョンが自動で配信されるので、再デプロイは不要です。
@@ -203,6 +210,28 @@ worker/
 | PUT | `/api/state` | 時間割を書き込み、版番号を 1 つ進める |
 | POST | `/api/test` | その端末にテスト通知を送る |
 | GET | `/api/dry-run?at=...` | 指定時刻で通知処理を試す（`ALLOW_DRY_RUN="true"` のときだけ） |
+
+## うまくいかないとき
+
+**`binding DB of type d1 must have a valid database_id specified [code: 10021]`**
+
+`wrangler.toml` の `database_id` がプレースホルダーのままです。`deploy` も `secret put` も
+アップロード前に設定を検証するため、ここを直すまでどちらも通りません。
+`npm run check` で今の状態を確認できます。ID は `npx wrangler d1 list` で調べられます。
+
+よくある原因:
+
+- **メモ帳が `wrangler.toml.txt` として保存している** — 保存時に「ファイルの種類」を
+  「すべてのファイル」にするか、VS Code など別のエディタを使ってください
+- **別の場所のファイルを編集している** — コマンドを実行しているフォルダの `wrangler.toml` か確認を
+- **`[[d1_databases]]` のブロックが 2 つある** — 貼り足すのではなく、既存の行の値だけを置き換えます
+
+**通知が届かない**
+
+- iPadOS 16.4 以上か、ホーム画面のアイコンから起動しているかを確認してください
+- 端末の 設定 → 通知 →「時間割」で通知が許可されているか、集中モードで止まっていないか
+- 設定画面の「テスト通知」で切り分けられます。テスト通知が届いて授業の通知だけ来ない場合は、
+  その曜日・時限に教科が登録されているか、休講にしていないかを確認してください
 
 ## 動作確認
 

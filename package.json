@@ -6,7 +6,10 @@
   "description": "週・月表示の時間割 PWA と、授業10分前の持ち物プッシュ通知を送る Cloudflare Worker",
   "scripts": {
     "dev": "wrangler dev",
+    "check": "node tools/check-config.mjs",
+    "predeploy": "node tools/check-config.mjs",
     "deploy": "wrangler deploy",
+    "secrets": "node tools/check-config.mjs && wrangler secret put VAPID_PUBLIC_KEY && wrangler secret put VAPID_PRIVATE_KEY",
     "db:init": "wrangler d1 execute timetable --remote --file=schema.sql",
     "db:init:local": "wrangler d1 execute timetable --local --file=schema.sql",
     "db:reset": "wrangler d1 execute timetable --remote --command \"DROP TABLE IF EXISTS schedules; DROP TABLE IF EXISTS devices; DROP TABLE IF EXISTS groups;\"",
