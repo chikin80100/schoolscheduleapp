@@ -5,7 +5,7 @@
  * iOS/iPadOS では 16.4 以降、かつ「ホーム画面に追加」した状態でのみ Web Push が使える。
  */
 
-import { deviceId, deleteRemote, setPushSubscriptionProvider, syncNow } from './store.js';
+import { deviceId, registerDevice, setPushSubscriptionProvider } from './store.js';
 
 let registration = null;
 
@@ -73,14 +73,16 @@ export async function enablePush() {
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
   }
-  await syncNow();
+  // 購読情報と時間割をサーバに登録する。未参加ならここで同期コードが発行される。
+  await registerDevice({ withSubscription: true });
   return subscription;
 }
 
 export async function disablePush() {
   const subscription = await getSubscription();
-  await deleteRemote().catch(() => {});
   if (subscription) await subscription.unsubscribe();
+  // 購読だけ消す。同期の登録は残すので、他の端末との共有は続く。
+  await registerDevice().catch(() => {});
 }
 
 /** 動作確認用の即時通知をサーバから送らせる。 */

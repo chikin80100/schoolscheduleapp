@@ -1,7 +1,22 @@
 /** アプリ本体。ビュー切り替え、カードパレット、ドラッグ操作、設定をまとめる。 */
 
 import { MAJORS, SPECIALIZED_MAJORS, GENERAL_MAJOR, presetsForMajor, resolveSubject } from './subjects.js';
-import { getState, update, subscribe, exportJSON, replaceState } from './store.js';
+import {
+  getState,
+  update,
+  subscribe,
+  subscribeStatus,
+  exportJSON,
+  replaceState,
+  formatCode,
+  getSyncStatus,
+  initSync,
+  joinSync,
+  leaveSync,
+  pullState,
+  startSync,
+  syncCode,
+} from './store.js';
 import { renderWeek, weekLabel, mondayOf, escapeHtml } from './view-week.js';
 import { renderMonth, monthLabel } from './view-month.js';
 import { enableDrag } from './dnd.js';
@@ -227,6 +242,11 @@ function openSettings() {
       </section>
 
       <section class="settings-block">
+        <h3>複数端末で同期</h3>
+        <div id="sync-panel"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>データ</h3>
         <div class="sheet-actions">
           <button type="button" class="button" id="data-export">エクスポート</button>
@@ -237,6 +257,7 @@ function openSettings() {
     </div>`;
 
   sheetBody.querySelector('[data-close]').addEventListener('click', () => dialog.close());
+  renderSyncPanel();
 
   sheetBody.querySelector('#major-checks').addEventListener('change', (event) => {
     const checked = [...sheetBody.querySelectorAll('#major-checks input:checked')].map((i) => i.value);
@@ -319,6 +340,104 @@ function openSettings() {
   if (!dialog.open) dialog.showModal();
 }
 
+/** 設定シート内の同期セクションを描き直す。 */
+function renderSyncPanel(message = '') {
+  const panel = sheetBody.querySelector('#sync-panel');
+  if (!panel) return;
+
+  const { code, lastSyncedAt, syncing, error } = getSyncStatus();
+  const note = message || error || '';
+  const lastLine = lastSyncedAt
+    ? `最終同期 ${new Date(lastSyncedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+
+  panel.innerHTML = code
+    ? `
+      <p class="sheet-sub">他の端末でこのコードを入力すると、同じ時間割になります。</p>
+      <div class="sync-code" id="sync-code" role="group" aria-label="同期コード">
+        <code>${escapeHtml(formatCode(code))}</code>
+        <button type="button" class="button is-small" id="sync-copy">コピー</button>
+      </div>
+      <p class="hint">${escapeHtml(lastLine)}${syncing ? ' / 同期中…' : ''}</p>
+      <div class="sheet-actions">
+        <button type="button" class="button" id="sync-pull">今すぐ取り込む</button>
+        <button type="button" class="button is-danger" id="sync-leave">この端末の同期をやめる</button>
+      </div>
+      ${note ? `<p class="hint is-note">${escapeHtml(note)}</p>` : ''}`
+    : `
+      <p class="sheet-sub">同期を始めるとコードが発行されます。別の端末ではそのコードを入力してください。</p>
+      <div class="sheet-actions">
+        <button type="button" class="button is-primary" id="sync-start">同期を始める</button>
+      </div>
+      <label class="field">
+        <span class="field-label">別の端末のコードで参加</span>
+        <input id="sync-input" type="text" inputmode="latin" autocapitalize="characters"
+          autocomplete="off" spellcheck="false" placeholder="ABCDE-FGHIJ" maxlength="13">
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="button" id="sync-join">参加する</button>
+      </div>
+      <p class="hint">参加すると、この端末の時間割は参加先の内容に置き換わります。</p>
+      ${note ? `<p class="hint is-note">${escapeHtml(note)}</p>` : ''}`;
+
+  wireSyncPanel(panel);
+}
+
+function wireSyncPanel(panel) {
+  const run = async (button, action, successMessage) => {
+    button.disabled = true;
+    try {
+      await action();
+      renderSyncPanel(successMessage);
+    } catch (error) {
+      renderSyncPanel(error.message);
+    }
+  };
+
+  panel.querySelector('#sync-start')?.addEventListener('click', (event) =>
+    run(event.currentTarget, startSync, '同期を始めました。'),
+  );
+
+  panel.querySelector('#sync-join')?.addEventListener('click', (event) => {
+    const value = panel.querySelector('#sync-input').value.trim();
+    if (!value) {
+      renderSyncPanel('同期コードを入力してください。');
+      return;
+    }
+    run(event.currentTarget, () => joinSync(value), '参加しました。');
+  });
+
+  panel.querySelector('#sync-pull')?.addEventListener('click', (event) =>
+    run(event.currentTarget, pullState, '最新の内容を取り込みました。'),
+  );
+
+  panel.querySelector('#sync-leave')?.addEventListener('click', (event) =>
+    run(event.currentTarget, leaveSync, 'この端末の同期をやめました。'),
+  );
+
+  panel.querySelector('#sync-copy')?.addEventListener('click', async (event) => {
+    try {
+      await navigator.clipboard.writeText(formatCode(syncCode()));
+      event.currentTarget.textContent = 'コピー済み';
+    } catch {
+      // クリップボードが使えない環境では、選択できるようにするだけにする。
+      const range = document.createRange();
+      range.selectNodeContents(panel.querySelector('#sync-code code'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    }
+  });
+}
+
+// 同期の進行状況が変わったら、設定シートが開いていれば表示を更新する。
+subscribeStatus(() => {
+  if (!dialog.open || !sheetBody.querySelector('#sync-panel')) return;
+  // コード入力中に描き直すと入力が消えるので、そのときは触らない。
+  const input = sheetBody.querySelector('#sync-input');
+  if (input && (input.value || document.activeElement === input)) return;
+  renderSyncPanel();
+});
+
 document.getElementById('settings').addEventListener('click', openSettings);
 
 /* ------------------------------------------------------------------- 起動 */
@@ -336,6 +455,7 @@ if (mode === 'week' && (startOfToday.getDay() === 0 || startOfToday.getDay() ===
 }
 anchor = mode === 'week' ? mondayOf(startOfToday) : new Date();
 render();
+initSync();
 registerServiceWorker().catch((error) => console.warn('Service Worker の登録に失敗', error));
 
 // 日付が変わったら「今日」の強調を更新する。

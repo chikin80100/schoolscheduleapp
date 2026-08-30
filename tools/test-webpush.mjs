@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { sendPush, base64UrlToBytes, bytesToBase64Url } from '../worker/webpush.js';
-import { dispatchNotifications, jstNow, buildNotification } from '../worker/index.js';
+import { dispatchNotifications, jstNow, buildNotification, normalizeCode } from '../worker/index.js';
 import { PERIODS, formatMinutes } from '../public/js/schedule.js';
 
 const encoder = new TextEncoder();
@@ -169,16 +169,19 @@ function fakeDB(rows) {
   };
 }
 
+/** 通知の対象は「グループの時間割 × 購読済みの端末」なので、その形の行を作る。 */
+function deviceRow(id, json) {
+  return {
+    id,
+    endpoint: subscription.endpoint,
+    p256dh: subscription.keys.p256dh,
+    auth: subscription.keys.auth,
+    json,
+  };
+}
+
 const env = {
-  DB: fakeDB([
-    {
-      id: 'device-1',
-      endpoint: subscription.endpoint,
-      p256dh: subscription.keys.p256dh,
-      auth: subscription.keys.auth,
-      json: JSON.stringify(state),
-    },
-  ]),
+  DB: fakeDB([deviceRow('device-1', JSON.stringify(state))]),
   VAPID_PUBLIC_KEY: vapid.publicKey,
   VAPID_PRIVATE_KEY: vapid.privateKey,
   VAPID_SUBJECT: vapid.subject,
@@ -214,10 +217,21 @@ assert.equal(sent.length, 0);
 // 通知を無効にしている端末には送らない
 const disabled = { ...state, settings: { ...state.settings, notifyEnabled: false } };
 sent = await dispatchNotifications(
-  { ...env, DB: fakeDB([{ id: 'd', endpoint: subscription.endpoint, p256dh: subscription.keys.p256dh, auth: subscription.keys.auth, json: JSON.stringify(disabled) }]) },
+  { ...env, DB: fakeDB([deviceRow('d', JSON.stringify(disabled))]) },
   thursdayMorning,
 );
 assert.equal(sent.length, 0);
+
+// 同じグループに属する 2 台には、それぞれ通知が届く
+sent = await dispatchNotifications(
+  {
+    ...env,
+    DB: fakeDB([deviceRow('ipad', JSON.stringify(state)), deviceRow('iphone', JSON.stringify(state))]),
+  },
+  thursdayMorning,
+);
+assert.equal(sent.length, 2, '同期グループの全端末に通知されていません');
+assert.deepEqual(sent.map((s) => s.deviceId), ['ipad', 'iphone']);
 
 /* --------------------------------------------------------------- 文面確認 */
 
@@ -232,6 +246,19 @@ assert.equal(withItems.body, '第1実験室 / 山田\n持ち物: 教科書、ノ
 
 const withoutItems = buildNotification({ name: 'LHR', room: '', teacher: '', items: [], color: '' }, 1, '2026-09-03', 4);
 assert.equal(withoutItems.body, '持ち物の登録はありません');
+
+/* ---------------------------------------------------------- 同期コード */
+
+// ハイフン・小文字・空白を含む入力を受け付ける
+assert.equal(normalizeCode('abcde-fghjk'), 'ABCDEFGHJK');
+assert.equal(normalizeCode('ABCDE FGHJK'), 'ABCDEFGHJK');
+assert.equal(normalizeCode('ABCDEFGHJK'), 'ABCDEFGHJK');
+// 桁数違い・紛らわしい文字(0/1/I/L/O/U)・空は弾く
+assert.equal(normalizeCode('ABCDE-FGHJ'), null);
+assert.equal(normalizeCode('ABCDEFGHJKL'), null);
+assert.equal(normalizeCode('ABCDEFGHI0'), null);
+assert.equal(normalizeCode(''), null);
+assert.equal(normalizeCode(undefined), null);
 
 /* ------------------------------------------------------------ 時程の確認 */
 

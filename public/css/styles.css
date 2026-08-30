@@ -512,6 +512,29 @@ body[data-mode='month'] .drawer { display: none; }
   cursor: pointer;
 }
 
+.sync-code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.sync-code code {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.hint.is-note { color: var(--accent); }
+
 .settings-block { margin-bottom: 22px; }
 .settings-block h3 { margin: 0 0 6px; font-size: 14px; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
