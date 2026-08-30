@@ -68,6 +68,21 @@ if (!subject || subject.includes('you@example.com')) {
       '  Web Push の送信元として配信サービスに伝えられる値です。',
     ].join('\n'),
   );
+} else if (!/^(mailto:|https:)/.test(subject)) {
+  // RFC 8292 は sub を mailto: か https: の URI と定めている。
+  // スキームが無いとプッシュ配信サービスに JWT を拒否され、通知が届かない。
+  const suggestion = subject.includes('@') ? `mailto:${subject}` : `https://${subject}`;
+  problems.push(
+    [
+      'wrangler.toml の VAPID_SUBJECT に mailto: か https: が付いていません。',
+      `  いまの値: "${subject}"`,
+      '',
+      '  メールアドレスだけだとプッシュ配信サービスに拒否され、通知が届きません。',
+      '  次のように書き換えてください:',
+      '',
+      `       VAPID_SUBJECT = "${suggestion}"`,
+    ].join('\n'),
+  );
 }
 
 for (const warning of warnings) console.warn(`⚠️  ${warning}\n`);

@@ -19,6 +19,6 @@ database_id = "cd5e0eab-1b40-458a-a530-07b0735e751b"
 crons = ["* 23 * * *", "* 0-6 * * *"]
 
 [vars]
-VAPID_SUBJECT = "chikin80100@gmail.com"
+VAPID_SUBJECT = "mailto:chikin80100@gmail.com"
 # 開発時のみ /api/dry-run を有効にする場合は "true" にする。
 ALLOW_DRY_RUN = "false"
