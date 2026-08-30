@@ -9,7 +9,7 @@
     "check": "node tools/check-config.mjs",
     "predeploy": "node tools/check-config.mjs",
     "deploy": "wrangler deploy",
-    "secrets": "node tools/check-config.mjs && wrangler secret put VAPID_PUBLIC_KEY && wrangler secret put VAPID_PRIVATE_KEY",
+    "secrets": "node tools/check-config.mjs && node tools/put-secrets.mjs",
     "db:init": "wrangler d1 execute timetable --remote --file=schema.sql",
     "db:init:local": "wrangler d1 execute timetable --local --file=schema.sql",
     "db:reset": "wrangler d1 execute timetable --remote --command \"DROP TABLE IF EXISTS schedules; DROP TABLE IF EXISTS devices; DROP TABLE IF EXISTS groups;\"",
