@@ -1,8 +1,10 @@
-/** 月表示。カレンダー上に各日の授業を科目チップで並べる。 */
+/**
+ * 月表示。日付だけのカレンダーを描く。
+ * 授業の中身は日をタップして開く詳細シート（editor.js の openDaySheet）で見る。
+ */
 
 import { SCHOOL_DAYS, periodCountForDay, toDateKey } from './schedule.js';
 import { lessonAt } from './timetable.js';
-import { escapeHtml } from './view-week.js';
 
 const WEEK_HEADS = ['月', '火', '水', '木', '金', '土', '日'];
 
@@ -41,17 +43,6 @@ export function renderMonth(container, state, anchorDate) {
 
   const cells = calendarDates(anchorDate).map((date) => {
     const key = toDateKey(date);
-    const lessons = lessonsOfDate(state, date).filter((l) => l.subject || l.status === 'cancelled');
-    const chips = lessons
-      .map((lesson) => {
-        if (lesson.status === 'cancelled') {
-          return `<span class="month-chip is-cancelled">${lesson.period}限 休講</span>`;
-        }
-        return `<span class="month-chip" style="--subject-color:${lesson.subject.color}">
-          ${escapeHtml(lesson.subject.name)}</span>`;
-      })
-      .join('');
-
     const classes = [
       'month-day',
       date.getMonth() === month ? '' : 'is-outside',
@@ -63,7 +54,6 @@ export function renderMonth(container, state, anchorDate) {
 
     return `<button type="button" class="${classes}" data-date="${key}">
       <span class="month-date">${date.getDate()}</span>
-      <span class="month-chips">${chips}</span>
     </button>`;
   });
 
