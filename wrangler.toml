@@ -1,0 +1,24 @@
+name = "school-timetable"
+main = "worker/index.js"
+compatibility_date = "2025-06-01"
+
+# public/ を静的配信し、/api/* と Cron だけを Worker が処理する。
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# 購読情報と時間割の保存先。`wrangler d1 create timetable` で作った ID に置き換える。
+[[d1_databases]]
+binding = "DB"
+database_name = "timetable"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# 日本時間 8:40〜15:10（= UTC 23:40〜06:10）を毎分チェックする。
+# 実際に送るかどうかは Worker 側で曜日・時刻を見て判定する。
+[triggers]
+crons = ["* 23 * * *", "* 0-6 * * *"]
+
+[vars]
+VAPID_SUBJECT = "mailto:you@example.com"
+# 開発時のみ /api/dry-run を有効にする場合は "true" にする。
+ALLOW_DRY_RUN = "false"

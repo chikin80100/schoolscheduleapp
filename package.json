@@ -1,0 +1,19 @@
+{
+  "name": "school-timetable",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "週・月表示の時間割 PWA と、授業10分前の持ち物プッシュ通知を送る Cloudflare Worker",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute timetable --file=schema.sql",
+    "db:init:local": "wrangler d1 execute timetable --local --file=schema.sql",
+    "keys": "node tools/generate-vapid-keys.mjs",
+    "icons": "python3 tools/generate-icons.py",
+    "test": "node tools/test-webpush.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

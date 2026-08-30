@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+    <title>時間割</title>
+    <meta name="description" content="週・月表示の時間割と、授業10分前の持ち物プッシュ通知">
+    <meta name="theme-color" content="#101418">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="時間割">
+    <link rel="stylesheet" href="/css/styles.css">
+  </head>
+  <body data-mode="week">
+    <div id="app">
+      <header class="topbar">
+        <div class="topbar-row">
+          <h1 class="app-title">時間割</h1>
+          <div class="segment" role="group" aria-label="表示の切り替え">
+            <button type="button" class="segment-button is-active" data-mode="week" aria-pressed="true">週</button>
+            <button type="button" class="segment-button" data-mode="month" aria-pressed="false">月</button>
+          </div>
+          <button type="button" class="icon-button" id="settings" aria-label="設定">⚙</button>
+        </div>
+        <div class="topbar-row is-nav">
+          <button type="button" class="icon-button" id="prev" aria-label="前へ">‹</button>
+          <span id="view-label" class="view-label"></span>
+          <button type="button" class="icon-button" id="next" aria-label="次へ">›</button>
+          <button type="button" class="button is-small" id="today">今日</button>
+        </div>
+      </header>
+
+      <main id="view" class="view"></main>
+
+      <section class="drawer" aria-label="教科カード">
+        <div class="drawer-head">
+          <div class="tabs" id="palette-tabs"></div>
+          <p class="drawer-hint">カードを長押しして時間割にドラッグ／タップして選び、コマをタップでも置けます</p>
+        </div>
+        <div class="palette" id="palette"></div>
+      </section>
+
+      <div class="trash" id="trash" data-drop="trash" aria-hidden="true">ここにドロップで削除</div>
+    </div>
+
+    <dialog id="sheet" class="sheet">
+      <div id="sheet-body"></div>
+    </dialog>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>
