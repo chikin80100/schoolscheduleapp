@@ -42,6 +42,8 @@ const viewLabel = document.getElementById('view-label');
 const palette = document.getElementById('palette');
 const paletteTabs = document.getElementById('palette-tabs');
 const trash = document.getElementById('trash');
+const drawerToggle = document.getElementById('drawer-toggle');
+const drawerLabel = document.getElementById('drawer-label');
 const sheetBody = document.getElementById('sheet-body');
 const dialog = document.getElementById('sheet');
 
@@ -49,6 +51,36 @@ let mode = getState().settings.defaultView;
 let anchor = new Date();
 let activeMajor = GENERAL_MAJOR;
 let selectedSubjectId = null; // タップで選択 → コマをタップして配置
+
+/* --------------------------------------------------------- カードパレットの開閉 */
+
+const DRAWER_KEY = 'timetable.drawerOpen';
+const NARROW = '(max-width: 560px)';
+
+// 狭い画面ではパレットが場所を取りすぎるので、既定で畳んでおく。
+// 一度でも開閉したら、その選択を端末に覚えさせる（同期はしない。端末ごとの都合のため）。
+let drawerOpen = (() => {
+  const saved = localStorage.getItem(DRAWER_KEY);
+  if (saved !== null) return saved === '1';
+  return !window.matchMedia(NARROW).matches;
+})();
+
+function renderDrawer() {
+  document.body.dataset.drawer = drawerOpen ? 'open' : 'closed';
+  drawerToggle.setAttribute('aria-expanded', String(drawerOpen));
+
+  const picked = selectedSubjectId ? resolveSubject(selectedSubjectId, getState().subjects) : null;
+  // 畳んでいても、選んだカードが分かるようにバーへ出す。
+  drawerLabel.innerHTML = picked
+    ? `教科カード <span class="is-picked">選択中: ${escapeHtml(picked.name)}</span>`
+    : '教科カード';
+}
+
+drawerToggle.addEventListener('click', () => {
+  drawerOpen = !drawerOpen;
+  localStorage.setItem(DRAWER_KEY, drawerOpen ? '1' : '0');
+  renderDrawer();
+});
 
 /* ------------------------------------------------------------------ 描画 */
 
@@ -81,6 +113,8 @@ function renderPalette() {
         data-major="${escapeHtml(major)}">${escapeHtml(major.replace('専攻', ''))}</button>`,
     )
     .join('');
+
+  renderDrawer();
 
   palette.innerHTML = presetsForMajor(activeMajor)
     .map((preset) => {

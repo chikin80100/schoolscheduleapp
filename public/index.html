@@ -36,11 +36,16 @@
       <main id="view" class="view"></main>
 
       <section class="drawer" aria-label="教科カード">
-        <div class="drawer-head">
+        <button type="button" class="drawer-toggle" id="drawer-toggle" aria-expanded="true"
+          aria-controls="drawer-body">
+          <span class="drawer-toggle-label" id="drawer-label">教科カード</span>
+          <span class="drawer-toggle-mark" aria-hidden="true">▾</span>
+        </button>
+        <div class="drawer-body" id="drawer-body">
           <div class="tabs" id="palette-tabs"></div>
           <p class="drawer-hint">カードを長押しして時間割にドラッグ／タップして選び、コマをタップでも置けます</p>
+          <div class="palette" id="palette"></div>
         </div>
-        <div class="palette" id="palette"></div>
       </section>
 
       <div class="trash" id="trash" data-drop="trash" aria-hidden="true">ここにドロップで削除</div>

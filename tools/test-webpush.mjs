@@ -13,6 +13,7 @@ import { sendPush, base64UrlToBytes, bytesToBase64Url } from '../worker/webpush.
 import { dispatchNotifications, jstNow, buildNotification, normalizeCode } from '../worker/index.js';
 import { PERIODS, formatMinutes } from '../public/js/schedule.js';
 import { eventsOn, normalizeState } from '../public/js/timetable.js';
+import { PRESETS, SPECIALIZED_MAJORS } from '../public/js/subjects.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -299,6 +300,34 @@ sent = await dispatchNotifications(
 );
 assert.equal(sent.length, 1);
 assert.equal(sent[0].subject, '電子回路');
+
+/* -------------------------------------------------------------- 教科の構成 */
+
+// 「実習」は普通科目から各専攻へ移した
+assert.ok(PRESETS.has('普通科目:キャリア探求'), '普通科目にキャリア探求がありません');
+assert.ok(!PRESETS.has('普通科目:実習'), '普通科目に実習が残っています');
+for (const major of SPECIALIZED_MAJORS) {
+  assert.ok(PRESETS.has(`${major}:実習`), `${major} に実習がありません`);
+}
+
+// 登録済みの古い ID は、専攻がちょうど 1 つのときだけ読み替える
+const migrated = normalizeState({
+  majors: ['電気専攻'],
+  template: { 1: { 3: '普通科目:実習', 4: '普通科目:物理' } },
+  overrides: { '2026-09-10': { 3: { type: 'replace', subjectId: '普通科目:実習' } } },
+  subjects: { '普通科目:実習': { items: ['作業服'], room: '実習棟', teacher: '', color: null } },
+});
+assert.equal(migrated.template['1']['3'], '電気専攻:実習');
+assert.equal(migrated.template['1']['4'], '普通科目:物理', '関係ない科目まで書き換えています');
+assert.equal(migrated.overrides['2026-09-10']['3'].subjectId, '電気専攻:実習');
+assert.deepEqual(migrated.subjects['電気専攻:実習'].items, ['作業服'], '持ち物が引き継がれていません');
+assert.equal(migrated.subjects['普通科目:実習'], undefined);
+
+// 専攻が 0 個または複数なら、寄せ先を決められないので触らない
+for (const majors of [[], ['電気専攻', 'ロボット専攻']]) {
+  const kept = normalizeState({ majors, template: { 1: { 3: '普通科目:実習' } } });
+  assert.equal(kept.template['1']['3'], '普通科目:実習', `majors=${JSON.stringify(majors)} で書き換わっています`);
+}
 
 /* ------------------------------------------------------------ 時程の確認 */
 

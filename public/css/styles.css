@@ -329,17 +329,55 @@ body.is-dragging-active {
 
 .drawer {
   flex: none;
-  max-height: 34dvh;
   display: flex;
   flex-direction: column;
-  padding: 8px 10px calc(8px + var(--safe-bottom));
+  min-height: 0;
+  padding: 0 10px calc(6px + var(--safe-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
 
 body[data-mode='month'] .drawer { display: none; }
 
-.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+.drawer-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer-toggle-label { flex: 1; }
+.drawer-toggle-label .is-picked { color: var(--accent); font-weight: 700; }
+
+.drawer-toggle-mark {
+  color: var(--text-dim);
+  font-size: 12px;
+  transition: transform 160ms ease;
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 34dvh;
+}
+
+/* 畳んだときは見出しのバーだけを残し、時間割に高さを譲る。 */
+body[data-drawer='closed'] .drawer-body { display: none; }
+body[data-drawer='closed'] .drawer-toggle-mark { transform: rotate(-90deg); }
+
+.tabs { display: flex; flex: none; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
 
 .tab {
   flex: none;
@@ -355,13 +393,13 @@ body[data-mode='month'] .drawer { display: none; }
 }
 
 .tab.is-active { background: var(--text); color: var(--bg); border-color: transparent; font-weight: 700; }
-.drawer-hint { margin: 4px 0 6px; color: var(--text-dim); font-size: 11px; }
+.drawer-hint { flex: none; margin: 4px 0 6px; color: var(--text-dim); font-size: 11px; }
 
 .palette {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 6px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -406,11 +444,16 @@ body[data-mode='month'] .drawer { display: none; }
   transition: none;
 }
 
+/*
+ * ドラッグ中だけ出す。位置をずらして隠す方法だと、セーフエリアのぶん
+ * 下端が持ち上がる端末（ホームインジケータのある iPhone など）で隠しきれないため、
+ * visibility で消す。visibility: hidden なら elementFromPoint にも拾われない。
+ */
 .trash {
   position: fixed;
   left: 50%;
   bottom: calc(14px + var(--safe-bottom));
-  transform: translate(-50%, 140%);
+  transform: translate(-50%, 12px);
   z-index: 900;
   padding: 12px 22px;
   border: 1px dashed var(--danger);
@@ -418,11 +461,36 @@ body[data-mode='month'] .drawer { display: none; }
   background: color-mix(in srgb, var(--danger) 22%, var(--surface));
   color: var(--text);
   font-size: 13px;
-  transition: transform 180ms ease;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease, visibility 160ms;
 }
 
-.trash.is-visible { transform: translate(-50%, 0); }
+.trash.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
+}
 .trash.is-drop-target { background: var(--danger); color: #fff; }
+
+/* ---------------------------------------------------------------- 狭い画面 */
+
+@media (max-width: 560px) {
+  :root { --gutter-width: 38px; }
+
+  .topbar { padding: 6px 10px 4px; }
+  .app-title { font-size: 15px; }
+  .view { padding: 8px; }
+  .week-grid { gap: 3px; }
+  .week-cell { min-height: 52px; }
+  .cell-name { font-size: 11.5px; }
+  .cell-meta { display: none; } /* 教室・先生は詳細シートで見る */
+
+  /* パレットを開いたときは、画面の半分近くまで使って一覧性を確保する。 */
+  .drawer-body { max-height: 42dvh; }
+}
 
 /* -------------------------------------------------------------------- シート */
 

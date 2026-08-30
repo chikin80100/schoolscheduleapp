@@ -22,6 +22,20 @@ export function emptyState() {
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/**
+ * 「実習」は普通科目から各専攻へ移した。すでに登録済みの古い ID を読み替える。
+ * どの専攻に寄せるかは、専攻がちょうど 1 つ選ばれているときだけ決められる。
+ * 0 個または複数のときは触らない（resolveSubject のフォールバックで表示自体は保たれる）。
+ */
+const LEGACY_SUBJECT_ID = '普通科目:実習';
+
+function subjectRemapper(majors) {
+  const specialized = majors.filter((major) => major !== '普通科目');
+  if (specialized.length !== 1) return (id) => id;
+  const replacement = `${specialized[0]}:実習`;
+  return (id) => (id === LEGACY_SUBJECT_ID ? replacement : id);
+}
+
 /** 予定 1 件を安全な形に整える。題名が無いものは捨てる。 */
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -57,12 +71,15 @@ export function normalizeState(raw) {
   const base = emptyState();
   if (!raw || typeof raw !== 'object') return base;
 
+  const majors = Array.isArray(raw.majors) ? raw.majors.filter((m) => typeof m === 'string') : [];
+  const remap = subjectRemapper(majors);
+
   const template = {};
   for (const [day, periods] of Object.entries(raw.template ?? {})) {
     if (!periods || typeof periods !== 'object') continue;
     const entries = {};
     for (const [period, id] of Object.entries(periods)) {
-      if (typeof id === 'string' && id) entries[period] = id;
+      if (typeof id === 'string' && id) entries[period] = remap(id);
     }
     template[day] = entries;
   }
@@ -75,7 +92,7 @@ export function normalizeState(raw) {
       if (!value || typeof value !== 'object') continue;
       if (value.type === 'cancelled') entries[period] = { type: 'cancelled' };
       else if (value.type === 'replace' && typeof value.subjectId === 'string') {
-        entries[period] = { type: 'replace', subjectId: value.subjectId };
+        entries[period] = { type: 'replace', subjectId: remap(value.subjectId) };
       }
     }
     if (Object.keys(entries).length) overrides[dateKey] = entries;
@@ -91,7 +108,7 @@ export function normalizeState(raw) {
   const subjects = {};
   for (const [id, value] of Object.entries(raw.subjects ?? {})) {
     if (!value || typeof value !== 'object') continue;
-    subjects[id] = {
+    subjects[remap(id)] = {
       items: Array.isArray(value.items) ? value.items.filter((i) => typeof i === 'string') : [],
       room: typeof value.room === 'string' ? value.room : '',
       teacher: typeof value.teacher === 'string' ? value.teacher : '',
@@ -104,7 +121,7 @@ export function normalizeState(raw) {
 
   return {
     version: 1,
-    majors: Array.isArray(raw.majors) ? raw.majors.filter((m) => typeof m === 'string') : [],
+    majors,
     subjects,
     template,
     overrides,
