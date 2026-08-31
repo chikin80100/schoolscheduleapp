@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { sendPush, base64UrlToBytes, bytesToBase64Url } from '../worker/webpush.js';
 import { dispatchNotifications, jstNow, buildNotification, normalizeCode } from '../worker/index.js';
-import { PERIODS, formatMinutes } from '../public/js/schedule.js';
+import { DEFAULT_PERIODS, buildPeriods, formatMinutes, periodsFrom } from '../public/js/schedule.js';
 import { eventsOn, normalizeState } from '../public/js/timetable.js';
 import { PRESETS, SPECIALIZED_MAJORS } from '../public/js/subjects.js';
 
@@ -224,6 +224,19 @@ sent = await dispatchNotifications(
 );
 assert.equal(sent.length, 0);
 
+// 壊れた購読が 1 件あっても、後続の端末への通知は止まらない
+const brokenRow = { ...deviceRow('broken', JSON.stringify(state)), p256dh: 'BROKEN' };
+const realError = console.error;
+console.error = () => {}; // 想定どおりの失敗なので、ログは伏せる
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([brokenRow, deviceRow('healthy', JSON.stringify(state))]) },
+  thursdayMorning,
+);
+console.error = realError;
+assert.equal(sent.length, 2, '壊れた購読で処理が止まっています');
+assert.equal(sent[0].ok, false);
+assert.equal(sent[1].ok, true, '後続の端末に通知が届いていません');
+
 // 同じグループに属する 2 台には、それぞれ通知が届く
 sent = await dispatchNotifications(
   {
@@ -237,7 +250,9 @@ assert.deepEqual(sent.map((s) => s.deviceId), ['ipad', 'iphone']);
 
 /* --------------------------------------------------------------- 文面確認 */
 
+const defaultPeriods = periodsFrom({});
 const withItems = buildNotification(
+  defaultPeriods,
   { name: '物理', room: '第1実験室', teacher: '山田', items: ['教科書', 'ノート'], color: '' },
   3,
   '2026-09-03',
@@ -246,7 +261,7 @@ const withItems = buildNotification(
 assert.equal(withItems.title, '次は 物理（3限 10:50〜）');
 assert.equal(withItems.body, '第1実験室 / 山田\n持ち物: 教科書、ノート');
 
-const withoutItems = buildNotification({ name: 'LHR', room: '', teacher: '', items: [], color: '' }, 1, '2026-09-03', 4);
+const withoutItems = buildNotification(defaultPeriods, { name: 'LHR', room: '', teacher: '', items: [], color: '' }, 1, '2026-09-03', 4);
 assert.equal(withoutItems.body, '持ち物の登録はありません');
 
 /* ---------------------------------------------------------- 同期コード */
@@ -331,10 +346,73 @@ for (const majors of [[], ['電気専攻', 'ロボット専攻']]) {
 
 /* ------------------------------------------------------------ 時程の確認 */
 
-const expected = ['8:50-9:40', '9:50-10:40', '10:50-11:40', '11:50-12:40', '13:20-14:10', '14:20-15:10', '15:20-16:10'];
-assert.deepEqual(
-  PERIODS.map((p) => `${formatMinutes(p.startMinutes)}-${formatMinutes(p.endMinutes)}`),
-  expected,
+const asRanges = (periods) =>
+  periods.map((p) => `${formatMinutes(p.startMinutes)}-${formatMinutes(p.endMinutes)}`);
+
+// 既定の時程
+assert.deepEqual(asRanges(periodsFrom({})), [
+  '8:50-9:40',
+  '9:50-10:40',
+  '10:50-11:40',
+  '11:50-12:40',
+  '13:20-14:10',
+  '14:20-15:10',
+  '15:20-16:10',
+]);
+
+// 設定を変えると、その時程になる（授業45分・休憩5分・昼休み50分・3限のあと・8:30開始）
+const custom = buildPeriods({
+  firstStart: '08:30',
+  classMinutes: 45,
+  breakMinutes: 5,
+  lunchMinutes: 50,
+  lunchAfter: 3,
+});
+assert.deepEqual(asRanges(periodsFrom({ periods: custom })), [
+  '8:30-9:15',
+  '9:20-10:05',
+  '10:10-10:55',
+  '11:45-12:30',
+  '12:35-13:20',
+  '13:25-14:10',
+  '14:15-15:00',
+]);
+
+// 壊れた時程は保存させず、既定に戻す
+for (const broken of [
+  [], // 数が足りない
+  [...DEFAULT_PERIODS.slice(0, 6), { start: '15:20', end: '15:00' }], // 終了が開始より前
+  [...DEFAULT_PERIODS.slice(0, 6), { start: '09:00', end: '09:50' }], // 前の時限と重なる
+  [...DEFAULT_PERIODS.slice(0, 6), { start: 'あ', end: 'い' }], // 時刻として読めない
+]) {
+  assert.deepEqual(
+    normalizeState({ periods: broken }).periods,
+    DEFAULT_PERIODS,
+    '壊れた時程が既定に戻っていません',
+  );
+}
+// まっとうな時程はそのまま保つ
+assert.deepEqual(normalizeState({ periods: custom }).periods, custom);
+
+// 時程を変えると、通知の時刻もそれに追従する
+const customState = {
+  ...state,
+  periods: custom,
+  template: { 4: { 1: '電子情報専攻:電子回路' } },
+  overrides: {},
+};
+// 1限が 8:30 開始なので、10 分前は 8:20（JST）= 前日 23:20 UTC
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('d1', JSON.stringify(customState))]) },
+  new Date('2026-09-02T23:20:00Z'),
 );
+assert.equal(sent.length, 1, '変更した時程で通知が出ていません');
+assert.equal(sent[0].period, 1);
+// 既定の 8:40 では、もう鳴らない
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('d1', JSON.stringify(customState))]) },
+  new Date('2026-09-02T23:40:00Z'),
+);
+assert.equal(sent.length, 0, '古い時程のまま通知が出ています');
 
 console.log('すべてのテストに合格しました');

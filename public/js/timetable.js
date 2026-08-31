@@ -3,7 +3,7 @@
  * フロントエンドの表示と Worker の通知判定で同じロジックを使う。
  */
 
-import { hasPeriod } from './schedule.js';
+import { DEFAULT_PERIODS, MAX_PERIODS, hasPeriod, parseTime } from './schedule.js';
 import { resolveSubject } from './subjects.js';
 
 /** 空の保存データ。localStorage と D1 の両方で同じ形を使う。 */
@@ -15,6 +15,7 @@ export function emptyState() {
     template: {},
     overrides: {},
     events: {},
+    periods: DEFAULT_PERIODS.map((entry) => ({ ...entry })),
     settings: { leadMinutes: 10, notifyEnabled: false, defaultView: 'week' },
   };
 }
@@ -34,6 +35,27 @@ function subjectRemapper(majors) {
   if (specialized.length !== 1) return (id) => id;
   const replacement = `${specialized[0]}:実習`;
   return (id) => (id === LEGACY_SUBJECT_ID ? replacement : id);
+}
+
+/**
+ * 時程を安全な形に整える。
+ * 7 時限ぶんそろっていて、各時限が「開始 < 終了」かつ前の時限より後ろにある場合だけ採用する。
+ * ひとつでも崩れていたら、部分的に壊れた時程で通知が出ないよう、まるごと既定値に戻す。
+ */
+function normalizePeriods(raw) {
+  if (!Array.isArray(raw) || raw.length !== MAX_PERIODS) return null;
+
+  const periods = [];
+  let previousEnd = -1;
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') return null;
+    const start = parseTime(entry.start);
+    const end = parseTime(entry.end);
+    if (start === null || end === null || end <= start || start < previousEnd) return null;
+    periods.push({ start: entry.start, end: entry.end });
+    previousEnd = end;
+  }
+  return periods;
 }
 
 /** 予定 1 件を安全な形に整える。題名が無いものは捨てる。 */
@@ -126,6 +148,7 @@ export function normalizeState(raw) {
     template,
     overrides,
     events,
+    periods: normalizePeriods(raw.periods) ?? DEFAULT_PERIODS.map((entry) => ({ ...entry })),
     settings: {
       leadMinutes: Number.isFinite(lead) && lead > 0 && lead <= 60 ? Math.round(lead) : 10,
       notifyEnabled: settings.notifyEnabled === true,

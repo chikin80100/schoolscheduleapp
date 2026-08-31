@@ -3,12 +3,12 @@
 import {
   DAY_NAMES,
   SCHOOL_DAYS,
-  PERIODS,
-  LUNCH,
   currentPeriod,
   formatMinutes,
   hasPeriod,
+  longBreakAfter,
   periodCountForDay,
+  periodsFrom,
   toDateKey,
 } from './schedule.js';
 import { lessonAt } from './timetable.js';
@@ -53,6 +53,7 @@ export function renderWeek(container, state, anchorDate) {
   const today = toDateKey(new Date());
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const rows = maxPeriods();
+  const periods = periodsFrom(state);
 
   const dates = SCHOOL_DAYS.map((day) => {
     const date = new Date(monday);
@@ -71,8 +72,11 @@ export function renderWeek(container, state, anchorDate) {
     .join('');
 
   const body = [];
+  // 行の高さは、授業の行だけ画面に合わせて伸ばし、休み時間の行は内容ぶんにする。
+  const rowSizes = ['auto']; // 曜日の見出し行
   for (let period = 1; period <= rows; period += 1) {
-    const info = PERIODS[period - 1];
+    const info = periods[period - 1];
+    rowSizes.push('minmax(58px, 1fr)');
     body.push(`<div class="week-gutter">
       <span class="gutter-period">${period}</span>
       <span class="gutter-time">${formatMinutes(info.startMinutes)}<br>${formatMinutes(info.endMinutes)}</span>
@@ -84,7 +88,7 @@ export function renderWeek(container, state, anchorDate) {
         continue;
       }
       const lesson = lessonAt(state, day, period, key);
-      const isNow = key === today && currentPeriod(day, nowMinutes) === period;
+      const isNow = key === today && currentPeriod(periods, day, nowMinutes) === period;
       const classes = [
         'week-cell',
         lesson.subject ? 'is-filled' : 'is-empty',
@@ -97,19 +101,22 @@ export function renderWeek(container, state, anchorDate) {
         data-day="${day}" data-period="${period}" data-date="${key}">${cellContent(lesson)}</div>`);
     }
 
-    if (period === 4) {
+    // まとまった休み（昼休みなど）だけを行として挟む。10 分休憩は出さない。
+    const breakMinutes = longBreakAfter(periods, period);
+    if (breakMinutes !== null && period < rows) {
+      const next = periods[period];
+      rowSizes.push('auto');
       body.push(`<div class="week-gutter is-lunch">
-        <span class="gutter-time">${formatMinutes(LUNCH.startMinutes)}<br>${formatMinutes(LUNCH.endMinutes)}</span>
+        <span class="gutter-time">${formatMinutes(info.endMinutes)}<br>${formatMinutes(next.startMinutes)}</span>
       </div>`);
-      body.push(`<div class="week-lunch" style="grid-column: span ${dates.length}">昼休み（40分）</div>`);
+      body.push(`<div class="week-lunch" style="grid-column: span ${dates.length}">
+        ${breakMinutes >= 30 ? '昼休み' : '休み'}（${breakMinutes}分）
+      </div>`);
     }
   }
 
-  // ヘッダー / 1〜4限 / 昼休み / 5限以降 の順に行を並べ、授業の行だけ画面に合わせて伸ばす。
-  const rowTemplate = `auto repeat(4, minmax(58px, 1fr)) auto repeat(${rows - 4}, minmax(58px, 1fr))`;
-
   container.innerHTML = `
-    <div class="week-grid" style="--day-count:${dates.length}; grid-template-rows:${rowTemplate}">
+    <div class="week-grid" style="--day-count:${dates.length}; grid-template-rows:${rowSizes.join(' ')}">
       <div class="week-head is-corner">時限</div>
       ${head}
       ${body.join('')}

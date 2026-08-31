@@ -1,6 +1,6 @@
 /** 科目カードの編集と、日付ごとの上書き（休講・変更）を扱うシート。 */
 
-import { formatMinutes, getPeriod, DAY_NAMES, fromDateKey } from './schedule.js';
+import { formatMinutes, getPeriod, periodsFrom, DAY_NAMES, fromDateKey } from './schedule.js';
 import { MAJORS, PRESETS, presetsForMajor, resolveSubject } from './subjects.js';
 import { eventsOn, lessonAt } from './timetable.js';
 import { getState, update } from './store.js';
@@ -113,7 +113,7 @@ export function openSubjectEditor(id) {
 export function openCellMenu(day, period, dateKey) {
   const state = getState();
   const lesson = lessonAt(state, day, period, dateKey);
-  const info = getPeriod(period);
+  const info = getPeriod(periodsFrom(state), period);
   const date = fromDateKey(dateKey);
   const title = `${date.getMonth() + 1}/${date.getDate()}（${DAY_NAMES[day]}） ${period}限 ${formatMinutes(info.startMinutes)}`;
 
@@ -209,10 +209,11 @@ export function openDaySheet(dateKey) {
         .join('')
     : '<p class="sheet-sub">予定はありません。</p>';
 
+  const periods = periodsFrom(state);
   const lessonRows = lessons.length
     ? lessons
         .map((lesson) => {
-          const info = getPeriod(lesson.period);
+          const info = getPeriod(periods, lesson.period);
           const label =
             lesson.status === 'cancelled'
               ? '<span class="day-row-name is-cancelled">休講</span>'

@@ -593,6 +593,65 @@ body[data-drawer='closed'] .drawer-toggle-mark { transform: rotate(-90deg); }
   cursor: pointer;
 }
 
+.period-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.field.is-inline { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.field.is-wide { grid-column: 1 / -1; }
+.field.is-inline .field-label { flex: none; margin-bottom: 0; white-space: nowrap; }
+.field.is-inline input { flex: 1; min-width: 0; padding: 8px 10px; }
+
+.field select {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* iOS のズームを避ける */
+}
+
+.period-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
+.period-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.period-no {
+  flex: none;
+  width: 22px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.period-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.period-sep { flex: none; color: var(--text-dim); font-size: 12px; }
+.period-length { flex: none; width: 42px; color: var(--text-dim); font-size: 11px; text-align: right; }
+
 .sync-code {
   display: flex;
   align-items: center;

@@ -35,7 +35,16 @@ import {
   registerServiceWorker,
   sendTestPush,
 } from './push.js';
-import { toDateKey } from './schedule.js';
+import {
+  DEFAULT_TIMETABLE,
+  MAX_PERIODS,
+  buildPeriods,
+  formatMinutes,
+  parseTime,
+  periodsFrom,
+  toDateKey,
+  toTimeValue,
+} from './schedule.js';
 
 const view = document.getElementById('view');
 const viewLabel = document.getElementById('view-label');
@@ -276,6 +285,11 @@ function openSettings() {
       </section>
 
       <section class="settings-block">
+        <h3>時程</h3>
+        <div id="periods-panel"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>複数端末で同期</h3>
         <div id="sync-panel"></div>
       </section>
@@ -292,6 +306,7 @@ function openSettings() {
 
   sheetBody.querySelector('[data-close]').addEventListener('click', () => dialog.close());
   renderSyncPanel();
+  renderPeriodsPanel();
 
   sheetBody.querySelector('#major-checks').addEventListener('change', (event) => {
     const checked = [...sheetBody.querySelectorAll('#major-checks input:checked')].map((i) => i.value);
@@ -372,6 +387,160 @@ function openSettings() {
   });
 
   if (!dialog.open) dialog.showModal();
+}
+
+/* ------------------------------------------------------------------ 時程 */
+
+/**
+ * 時程の設定。
+ * 上のまとめ入力で一気に組み立てられるほか、時限ごとに開始・終了を直接直せる。
+ * どちらの結果も state.periods（"HH:MM" の配列）に入り、そのまま同期と通知に効く。
+ */
+/**
+ * いま入っている時程から、まとめ入力の初期値を読み取る。
+ * 一番長い空きを昼休みとみなし、残りの空きのうち最も多いものを休憩とする。
+ */
+function inferTimetableParams(periods) {
+  const gaps = periods
+    .slice(0, -1)
+    .map((info, index) => ({ after: index + 1, minutes: periods[index + 1].startMinutes - info.endMinutes }));
+  const lunch = gaps.reduce((longest, gap) => (gap.minutes > longest.minutes ? gap : longest), gaps[0]);
+
+  const others = gaps.filter((gap) => gap.after !== lunch.after).map((gap) => gap.minutes);
+  const tally = new Map();
+  for (const minutes of others) tally.set(minutes, (tally.get(minutes) ?? 0) + 1);
+  const breakMinutes = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? DEFAULT_TIMETABLE.breakMinutes;
+
+  return {
+    firstStart: toTimeValue(periods[0].startMinutes),
+    classMinutes: periods[0].endMinutes - periods[0].startMinutes,
+    breakMinutes,
+    lunchMinutes: lunch.minutes,
+    lunchAfter: lunch.after,
+  };
+}
+
+function renderPeriodsPanel(message = '') {
+  const panel = sheetBody.querySelector('#periods-panel');
+  if (!panel) return;
+
+  const periods = periodsFrom(getState());
+  const params = inferTimetableParams(periods);
+  const rows = periods
+    .map(
+      (info) => `<div class="period-row">
+        <span class="period-no">${info.period}</span>
+        <input type="time" data-period-start="${info.period}" value="${toTimeValue(info.startMinutes)}">
+        <span class="period-sep">〜</span>
+        <input type="time" data-period-end="${info.period}" value="${toTimeValue(info.endMinutes)}">
+        <span class="period-length">${info.endMinutes - info.startMinutes}分</span>
+      </div>`,
+    )
+    .join('');
+
+  panel.innerHTML = `
+    <p class="sheet-sub">授業と休み時間の長さを変えられます。変更は通知の時刻にも反映されます。</p>
+
+    <div class="period-form">
+      <label class="field is-inline">
+        <span class="field-label">1限の開始</span>
+        <input id="tt-first" type="time" value="${params.firstStart}">
+      </label>
+      <label class="field is-inline">
+        <span class="field-label">授業</span>
+        <input id="tt-class" type="number" min="1" max="180" value="${params.classMinutes}">
+      </label>
+      <label class="field is-inline">
+        <span class="field-label">休憩</span>
+        <input id="tt-break" type="number" min="0" max="120" value="${params.breakMinutes}">
+      </label>
+      <label class="field is-inline">
+        <span class="field-label">昼休み</span>
+        <input id="tt-lunch" type="number" min="0" max="180" value="${params.lunchMinutes}">
+      </label>
+      <label class="field is-inline is-wide">
+        <span class="field-label">昼休みの位置</span>
+        <select id="tt-lunch-after">
+          ${Array.from({ length: MAX_PERIODS - 1 }, (_, i) => i + 1)
+            .map((n) => `<option value="${n}"${n === params.lunchAfter ? ' selected' : ''}>${n}限のあと</option>`)
+            .join('')}
+        </select>
+      </label>
+    </div>
+    <div class="sheet-actions">
+      <button type="button" class="button is-primary" id="tt-apply">この内容で作り直す</button>
+      <button type="button" class="button" id="tt-reset">既定に戻す</button>
+    </div>
+
+    <p class="field-label">時限ごとの時刻</p>
+    <div class="period-list">${rows}</div>
+    ${message ? `<p class="hint is-note">${escapeHtml(message)}</p>` : ''}`;
+
+  const savePeriods = (list, note) => {
+    update((state) => {
+      state.periods = list;
+    });
+    render();
+    renderPeriodsPanel(note);
+  };
+
+  panel.querySelector('#tt-apply').addEventListener('click', () => {
+    const classMinutes = Number(panel.querySelector('#tt-class').value);
+    const breakMinutes = Number(panel.querySelector('#tt-break').value);
+    const lunchMinutes = Number(panel.querySelector('#tt-lunch').value);
+    const firstStart = panel.querySelector('#tt-first').value;
+    if (!Number.isFinite(classMinutes) || classMinutes < 1 || parseTime(firstStart) === null) {
+      renderPeriodsPanel('開始時刻と授業の長さを確認してください。');
+      return;
+    }
+    savePeriods(
+      buildPeriods({
+        firstStart,
+        classMinutes,
+        breakMinutes: Number.isFinite(breakMinutes) ? breakMinutes : 0,
+        lunchMinutes: Number.isFinite(lunchMinutes) ? lunchMinutes : 0,
+        lunchAfter: Number(panel.querySelector('#tt-lunch-after').value),
+      }),
+      '時程を作り直しました。',
+    );
+  });
+
+  panel.querySelector('#tt-reset').addEventListener('click', () => {
+    savePeriods(buildPeriods(), '既定の時程に戻しました。');
+  });
+
+  // 時限ごとの直接編集。1 つ直すたびに保存し、おかしい値はその場で知らせる。
+  panel.querySelectorAll('[data-period-start], [data-period-end]').forEach((input) => {
+    input.addEventListener('change', () => {
+      const next = periods.map((info) => ({
+        start: toTimeValue(info.startMinutes),
+        end: toTimeValue(info.endMinutes),
+      }));
+      const index = Number(input.dataset.periodStart ?? input.dataset.periodEnd) - 1;
+      const key = input.dataset.periodStart ? 'start' : 'end';
+      if (parseTime(input.value) === null) {
+        renderPeriodsPanel('時刻の形式が正しくありません。');
+        return;
+      }
+      if (parseTime(next[index][key]) === parseTime(input.value)) return; // 変わっていない
+      next[index][key] = input.value;
+
+      // 開始 < 終了、かつ前の時限より後ろ。崩れていたら保存せずに知らせる。
+      let previousEnd = -1;
+      for (const entry of next) {
+        const start = parseTime(entry.start);
+        const end = parseTime(entry.end);
+        if (end <= start || start < previousEnd) {
+          renderPeriodsPanel(
+            `${index + 1}限の時刻が前後しています。開始より終了をあとにし、前の時限と重ならないようにしてください。`,
+          );
+          return;
+        }
+        previousEnd = end;
+      }
+      savePeriods(next, `${index + 1}限を ${formatMinutes(parseTime(next[index].start))} 〜 ${formatMinutes(parseTime(next[index].end))} にしました。`);
+    });
+  });
 }
 
 /** 設定シート内の同期セクションを描き直す。 */

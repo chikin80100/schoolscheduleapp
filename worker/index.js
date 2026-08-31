@@ -6,7 +6,13 @@
  */
 
 import { sendPush } from './webpush.js';
-import { DAY_NAMES, formatMinutes, getPeriod, periodStartingAfter } from '../public/js/schedule.js';
+import {
+  DAY_NAMES,
+  formatMinutes,
+  getPeriod,
+  periodStartingAfter,
+  periodsFrom,
+} from '../public/js/schedule.js';
 import { lessonAt, normalizeState } from '../public/js/timetable.js';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -58,8 +64,8 @@ export function jstNow(date = new Date()) {
 }
 
 /** 通知の文面を組み立てる。持ち物が空なら、その行は出さない。 */
-export function buildNotification(subject, period, dateKey, day) {
-  const info = getPeriod(period);
+export function buildNotification(periods, subject, period, dateKey, day) {
+  const info = getPeriod(periods, period);
   const lines = [];
   const place = [subject.room, subject.teacher].filter(Boolean).join(' / ');
   if (place) lines.push(place);
@@ -232,20 +238,28 @@ export async function dispatchNotifications(env, now = new Date()) {
     }
     if (!state.settings.notifyEnabled) continue;
 
-    const period = periodStartingAfter(day, minutes, state.settings.leadMinutes);
+    // 時程は端末ごとに設定できるので、その端末の設定で判定する。
+    const periods = periodsFrom(state);
+    const period = periodStartingAfter(periods, day, minutes, state.settings.leadMinutes);
     if (!period) continue;
 
     const lesson = lessonAt(state, day, period, dateKey);
     if (!lesson.subject) continue; // 未登録・休講は通知しない
 
-    const payload = buildNotification(lesson.subject, period, dateKey, day);
-    const result = await sendPush(
-      { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
-      payload,
-      vapid,
-    );
-    if (result.gone) await removeSubscription(env, row.id);
-    sent.push({ deviceId: row.id, period, subject: lesson.subject.name, ok: result.ok });
+    const payload = buildNotification(periods, lesson.subject, period, dateKey, day);
+    try {
+      const result = await sendPush(
+        { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+        payload,
+        vapid,
+      );
+      if (result.gone) await removeSubscription(env, row.id);
+      sent.push({ deviceId: row.id, period, subject: lesson.subject.name, ok: result.ok });
+    } catch (error) {
+      // 壊れた購読が 1 件あっても、ほかの端末への通知は続ける。
+      console.error(`通知の送信に失敗しました (device=${row.id})`, error);
+      sent.push({ deviceId: row.id, period, subject: lesson.subject.name, ok: false });
+    }
   }
 
   return sent;
