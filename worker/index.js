@@ -266,7 +266,10 @@ export default {
         if (url.pathname === '/api/sync' && request.method === 'DELETE') return handleDelete(request, env);
         if (url.pathname === '/api/join' && request.method === 'POST') return handleJoin(request, env);
         if (url.pathname === '/api/state' && request.method === 'GET') return handleState(request, env, url);
-        if (url.pathname === '/api/state' && request.method === 'PUT') return handlePutState(request, env);
+        // POST も受けるのは、離脱時の送信に使う sendBeacon が POST しか送れないため。
+        if (url.pathname === '/api/state' && (request.method === 'PUT' || request.method === 'POST')) {
+          return handlePutState(request, env);
+        }
         if (url.pathname === '/api/test' && request.method === 'POST') return handleTest(request, env);
 
         // 開発用: 任意の時刻を指定して通知処理を試す。

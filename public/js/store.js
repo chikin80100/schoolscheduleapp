@@ -22,6 +22,7 @@ const statusListeners = new Set();
 let state = load();
 let pushTimer = null;
 let pollTimer = null;
+let pendingPush = false; // 未送信の変更があるか
 let pushSubscriptionProvider = null;
 let status = { syncing: false, lastSyncedAt: null, error: null };
 
@@ -124,10 +125,43 @@ export function setPushSubscriptionProvider(provider) {
 /* ------------------------------------------------------------------ 送信 */
 
 function schedulePush() {
+  pendingPush = true;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushState().catch((error) => setStatus({ error: error.message }));
   }, PUSH_DEBOUNCE_MS);
+}
+
+/**
+ * 未送信の変更を、待たずに送り切る。
+ * 編集した直後にアプリを閉じたりホーム画面に戻ったりすると、待ち時間のあいだに
+ * ページが止められて変更が届かないことがある。そのままだと通知の内容が古くなる。
+ *
+ * この場面では通常の fetch は中断されるため、離脱中でも送信が保証される
+ * sendBeacon を使う。sendBeacon は POST しか送れないので、
+ * Worker 側は /api/state で PUT と POST の両方を受け付けている。
+ */
+function flushPendingPush() {
+  const code = syncCode();
+  if (!pendingPush || !code) return;
+  clearTimeout(pushTimer);
+
+  const body = JSON.stringify({ code, deviceId: deviceId(), schedule: state });
+  if (navigator.sendBeacon?.('/api/state', new Blob([body], { type: 'application/json' }))) {
+    pendingPush = false;
+    return;
+  }
+  // sendBeacon が使えない環境向けの保険。keepalive で離脱後も送信を続けさせる。
+  fetch('/api/state', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body,
+    keepalive: true,
+  })
+    .then(() => {
+      pendingPush = false;
+    })
+    .catch(() => {});
 }
 
 /** 手元の時間割をサーバに反映する。 */
@@ -144,6 +178,7 @@ export async function pushState() {
     if (!response.ok) throw new Error(await errorMessage(response));
     const { rev } = await response.json();
     rememberSync(code, rev);
+    pendingPush = false;
     setStatus({ syncing: false, lastSyncedAt: Date.now() });
     return true;
   } catch (error) {
@@ -278,13 +313,19 @@ function stopPolling() {
 
 /** 起動時に呼ぶ。参加中なら最新を取り込み、以降は定期的に確認する。 */
 export function initSync() {
+  // 同期を後から始める場合もあるので、監視は参加状況にかかわらず張っておく
+  // （pullState と flushPendingPush は、未参加なら何もせず戻る）。
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') pullState().catch(() => {});
+    // 画面から離れる前に、未送信の変更を送り切る。
+    else flushPendingPush();
+  });
+  // iOS では閉じるときに visibilitychange が来ないことがあるため、こちらも見る。
+  window.addEventListener('pagehide', flushPendingPush);
+
   if (!syncCode()) return;
   startPolling();
   pullState().catch(() => {});
-  // 画面に戻ってきたときは、待たずに取り込む。
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') pullState().catch(() => {});
-  });
 }
 
 /* -------------------------------------------------------- インポート/エクスポート */
