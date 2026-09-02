@@ -40,11 +40,16 @@ import {
   MAX_PERIODS,
   buildPeriods,
   formatMinutes,
+  fromDateKey,
   parseTime,
   periodsFrom,
   toDateKey,
   toTimeValue,
 } from './schedule.js';
+import { parseICalendar } from './ical.js';
+
+/** 取り込んだ予定の色。手で作った予定と見分けられるようにそろえる。 */
+const IMPORTED_EVENT_COLOR = 'hsl(140 42% 40%)';
 
 const view = document.getElementById('view');
 const viewLabel = document.getElementById('view-label');
@@ -144,8 +149,14 @@ subscribe(render);
 
 function shift(direction) {
   const next = new Date(anchor);
-  if (mode === 'week') next.setDate(next.getDate() + 7 * direction);
-  else next.setMonth(next.getMonth() + direction);
+  if (mode === 'week') {
+    next.setDate(next.getDate() + 7 * direction);
+  } else {
+    // 31 日のまま月を動かすと、30 日までの月を飛び越してしまう（8/31 → 10/1）。
+    // 月表示は年と月しか見ないので、1 日に寄せてから動かす。
+    next.setDate(1);
+    next.setMonth(next.getMonth() + direction);
+  }
   anchor = next;
   render();
 }
@@ -295,6 +306,18 @@ function openSettings() {
       </section>
 
       <section class="settings-block">
+        <h3>カレンダーの読み込み</h3>
+        <p class="sheet-sub">
+          学校の行事予定やカレンダーアプリから書き出した .ics ファイルを、予定として取り込めます。
+        </p>
+        <div class="sheet-actions">
+          <label class="button is-primary" for="ics-import">.ics ファイルを選ぶ</label>
+          <input id="ics-import" type="file" accept=".ics,text/calendar" hidden>
+        </div>
+        <div id="ics-panel"></div>
+      </section>
+
+      <section class="settings-block">
         <h3>データ</h3>
         <div class="sheet-actions">
           <button type="button" class="button" id="data-export">エクスポート</button>
@@ -366,6 +389,12 @@ function openSettings() {
     }
   });
 
+  sheetBody.querySelector('#ics-import').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // 同じファイルを選び直せるようにする
+    if (file) await previewCalendar(file);
+  });
+
   sheetBody.querySelector('#data-export').addEventListener('click', () => {
     const blob = new Blob([exportJSON()], { type: 'application/json' });
     const link = document.createElement('a');
@@ -387,6 +416,89 @@ function openSettings() {
   });
 
   if (!dialog.open) dialog.showModal();
+}
+
+/* -------------------------------------------------------- カレンダーの読み込み */
+
+/**
+ * .ics を読んで、取り込む前に中身を見せる。
+ * 件数と期間を確かめてから入れられるようにし、いきなり大量の予定が増えないようにする。
+ */
+async function previewCalendar(file) {
+  const panel = sheetBody.querySelector('#ics-panel');
+  if (!panel) return;
+  panel.innerHTML = '<p class="hint">読み込んでいます…</p>';
+
+  let occurrences;
+  try {
+    occurrences = parseICalendar(await file.text());
+  } catch (error) {
+    panel.innerHTML = `<p class="hint is-note">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  if (!occurrences.length) {
+    panel.innerHTML = '<p class="hint is-note">取り込める予定が見つかりませんでした。</p>';
+    return;
+  }
+
+  const first = fromDateKey(occurrences[0].dateKey);
+  const last = fromDateKey(occurrences[occurrences.length - 1].dateKey);
+  const range = `${first.getFullYear()}/${first.getMonth() + 1}/${first.getDate()} 〜 ${last.getFullYear()}/${last.getMonth() + 1}/${last.getDate()}`;
+  const samples = occurrences
+    .slice(0, 5)
+    .map((item) => {
+      const date = fromDateKey(item.dateKey);
+      return `<li>${date.getMonth() + 1}/${date.getDate()} ${escapeHtml(item.time || '終日')} ${escapeHtml(item.title)}</li>`;
+    })
+    .join('');
+
+  panel.innerHTML = `
+    <div class="ics-preview">
+      <p><b>${occurrences.length}件</b>の予定が見つかりました（${escapeHtml(range)}）。</p>
+      <ul class="ics-samples">${samples}</ul>
+      ${occurrences.length > 5 ? `<p class="hint">ほか ${occurrences.length - 5} 件</p>` : ''}
+      <div class="sheet-actions">
+        <button type="button" class="button is-primary" id="ics-apply">この内容を取り込む</button>
+        <button type="button" class="button" id="ics-cancel">やめる</button>
+      </div>
+      <p class="hint">すでにある予定は消えません。同じファイルを読み直しても重複しません。</p>
+    </div>`;
+
+  panel.querySelector('#ics-cancel').addEventListener('click', () => {
+    panel.innerHTML = '';
+  });
+
+  panel.querySelector('#ics-apply').addEventListener('click', () => {
+    const added = importCalendar(occurrences);
+    render();
+    panel.innerHTML = `<p class="hint is-note">${added}件の予定を取り込みました。</p>`;
+  });
+}
+
+/**
+ * 読み取った予定を保存データに入れる。
+ * id に .ics の UID を使うので、同じファイルを読み直しても増えず、上書きになる。
+ * 手で作った予定（別の id）はそのまま残る。
+ *
+ * @returns {number} 取り込んだ件数
+ */
+function importCalendar(occurrences) {
+  update((state) => {
+    for (const item of occurrences) {
+      const list = state.events[item.dateKey] ?? (state.events[item.dateKey] = []);
+      const event = {
+        id: `ics:${item.uid}:${item.dateKey}`,
+        title: item.title,
+        time: item.time,
+        color: IMPORTED_EVENT_COLOR,
+      };
+      const index = list.findIndex((existing) => existing.id === event.id);
+      if (index >= 0) list[index] = event;
+      else list.push(event);
+    }
+  });
+  return occurrences.length;
 }
 
 /* ------------------------------------------------------------------ 時程 */

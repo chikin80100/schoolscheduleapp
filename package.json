@@ -15,7 +15,7 @@
     "db:reset": "wrangler d1 execute timetable --remote --command \"DROP TABLE IF EXISTS schedules; DROP TABLE IF EXISTS devices; DROP TABLE IF EXISTS groups;\"",
     "keys": "node tools/generate-vapid-keys.mjs",
     "icons": "python3 tools/generate-icons.py",
-    "test": "node tools/test-webpush.mjs"
+    "test": "node tools/test-webpush.mjs && node tools/test-ical.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

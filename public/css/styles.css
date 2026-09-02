@@ -593,6 +593,25 @@ body[data-drawer='closed'] .drawer-toggle-mark { transform: rotate(-90deg); }
   cursor: pointer;
 }
 
+.ics-preview {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.ics-preview p { margin: 0 0 8px; }
+
+.ics-samples {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .period-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
