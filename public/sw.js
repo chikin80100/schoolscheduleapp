@@ -1,11 +1,12 @@
 /* Service Worker: アプリシェルのキャッシュとプッシュ通知の表示。 */
 
-const CACHE = 'timetable-v7';
+const CACHE = 'timetable-v8';
 const SHELL = [
   '/',
   '/index.html',
   '/css/styles.css',
   '/js/app.js',
+  '/js/dayplan.js',
   '/js/dnd.js',
   '/js/editor.js',
   '/js/ical.js',

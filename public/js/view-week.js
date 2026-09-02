@@ -11,7 +11,7 @@ import {
   periodsFrom,
   toDateKey,
 } from './schedule.js';
-import { lessonAt } from './timetable.js';
+import { dayPlanLabel, effectiveDay, lessonAt, periodsFor } from './timetable.js';
 
 /** その週の月曜日を返す。 */
 export function mondayOf(date) {
@@ -58,15 +58,18 @@ export function renderWeek(container, state, anchorDate) {
   const dates = SCHOOL_DAYS.map((day) => {
     const date = new Date(monday);
     date.setDate(monday.getDate() + day - 1);
-    return { day, date, key: toDateKey(date) };
+    const key = toDateKey(date);
+    // 日課が変わっている日は、引く曜日も時程もその日だけ別になる。
+    return { day, date, key, source: effectiveDay(state, day, key), plan: dayPlanLabel(state, key) };
   });
 
   const head = dates
-    .map(({ day, date, key }) => {
+    .map(({ day, date, key, plan }) => {
       const isToday = key === today;
-      return `<div class="week-head${isToday ? ' is-today' : ''}">
+      return `<div class="week-head${isToday ? ' is-today' : ''}${plan ? ' is-changed' : ''}">
         <span class="week-head-day">${DAY_NAMES[day]}</span>
         <span class="week-head-date">${date.getMonth() + 1}/${date.getDate()}</span>
+        ${plan ? `<span class="week-head-plan">${escapeHtml(plan)}</span>` : ''}
       </div>`;
     })
     .join('');
@@ -82,17 +85,20 @@ export function renderWeek(container, state, anchorDate) {
       <span class="gutter-time">${formatMinutes(info.startMinutes)}<br>${formatMinutes(info.endMinutes)}</span>
     </div>`);
 
-    for (const { day, key } of dates) {
-      if (!hasPeriod(day, period)) {
+    for (const { day, key, source, plan } of dates) {
+      if (!hasPeriod(source, period)) {
         body.push('<div class="week-cell is-disabled" data-drop="cell" data-drop-disabled="true"></div>');
         continue;
       }
       const lesson = lessonAt(state, day, period, key);
-      const isNow = key === today && currentPeriod(periods, day, nowMinutes) === period;
+      // 今どの時限かは、その日の時程で見る（短縮の日は時刻がずれるため）。
+      const isNow =
+        key === today && currentPeriod(periodsFor(state, key), source, nowMinutes) === period;
       const classes = [
         'week-cell',
         lesson.subject ? 'is-filled' : 'is-empty',
         lesson.status === 'cancelled' ? 'is-cancelled' : '',
+        plan ? 'is-changed' : '',
         isNow ? 'is-now' : '',
       ]
         .filter(Boolean)

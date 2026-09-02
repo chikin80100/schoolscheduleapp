@@ -36,16 +36,17 @@ import {
   sendTestPush,
 } from './push.js';
 import {
-  DEFAULT_TIMETABLE,
   MAX_PERIODS,
   buildPeriods,
   formatMinutes,
   fromDateKey,
+  inferTimetableParams,
   parseTime,
-  periodsFrom,
   toDateKey,
+  toPeriods,
   toTimeValue,
 } from './schedule.js';
+import { DEFAULT_SHORT_PERIODS, detectedDayPlanCount } from './timetable.js';
 import { parseICalendar } from './ical.js';
 
 /** 取り込んだ予定の色。手で作った予定と見分けられるようにそろえる。 */
@@ -453,9 +454,17 @@ async function previewCalendar(file) {
     })
     .join('');
 
+  const planDays = detectedDayPlanCount(occurrences);
+
   panel.innerHTML = `
     <div class="ics-preview">
       <p><b>${occurrences.length}件</b>の予定が見つかりました（${escapeHtml(range)}）。</p>
+      ${
+        planDays
+          ? `<p class="ics-plans">うち <b>${planDays}日</b>は短縮授業・◯曜日課として読み取れました。
+             その日の時程と時間割を自動で切り替えます。</p>`
+          : ''
+      }
       <ul class="ics-samples">${samples}</ul>
       ${occurrences.length > 5 ? `<p class="hint">ほか ${occurrences.length - 5} 件</p>` : ''}
       <div class="sheet-actions">
@@ -508,35 +517,16 @@ function importCalendar(occurrences) {
  * 上のまとめ入力で一気に組み立てられるほか、時限ごとに開始・終了を直接直せる。
  * どちらの結果も state.periods（"HH:MM" の配列）に入り、そのまま同期と通知に効く。
  */
-/**
- * いま入っている時程から、まとめ入力の初期値を読み取る。
- * 一番長い空きを昼休みとみなし、残りの空きのうち最も多いものを休憩とする。
- */
-function inferTimetableParams(periods) {
-  const gaps = periods
-    .slice(0, -1)
-    .map((info, index) => ({ after: index + 1, minutes: periods[index + 1].startMinutes - info.endMinutes }));
-  const lunch = gaps.reduce((longest, gap) => (gap.minutes > longest.minutes ? gap : longest), gaps[0]);
-
-  const others = gaps.filter((gap) => gap.after !== lunch.after).map((gap) => gap.minutes);
-  const tally = new Map();
-  for (const minutes of others) tally.set(minutes, (tally.get(minutes) ?? 0) + 1);
-  const breakMinutes = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? DEFAULT_TIMETABLE.breakMinutes;
-
-  return {
-    firstStart: toTimeValue(periods[0].startMinutes),
-    classMinutes: periods[0].endMinutes - periods[0].startMinutes,
-    breakMinutes,
-    lunchMinutes: lunch.minutes,
-    lunchAfter: lunch.after,
-  };
-}
+/** 時程パネルでいまどちらを編集しているか。 */
+let editingSchedule = 'normal';
 
 function renderPeriodsPanel(message = '') {
   const panel = sheetBody.querySelector('#periods-panel');
   if (!panel) return;
 
-  const periods = periodsFrom(getState());
+  const state = getState();
+  const isShort = editingSchedule === 'short';
+  const periods = toPeriods(isShort ? state.shortPeriods : state.periods);
   const params = inferTimetableParams(periods);
   const rows = periods
     .map(
@@ -551,7 +541,17 @@ function renderPeriodsPanel(message = '') {
     .join('');
 
   panel.innerHTML = `
-    <p class="sheet-sub">授業と休み時間の長さを変えられます。変更は通知の時刻にも反映されます。</p>
+    <div class="tabs" id="tt-tabs">
+      <button type="button" class="tab${isShort ? '' : ' is-active'}" data-schedule="normal">通常</button>
+      <button type="button" class="tab${isShort ? ' is-active' : ''}" data-schedule="short">短縮</button>
+    </div>
+    <p class="sheet-sub">
+      ${
+        isShort
+          ? '「短縮授業」の予定がある日に使う時程です。「40分授業」のように長さが書かれている日は、その数字が優先されます。'
+          : '授業と休み時間の長さを変えられます。変更は通知の時刻にも反映されます。'
+      }
+    </p>
 
     <div class="period-form">
       <label class="field is-inline">
@@ -589,12 +589,20 @@ function renderPeriodsPanel(message = '') {
     ${message ? `<p class="hint is-note">${escapeHtml(message)}</p>` : ''}`;
 
   const savePeriods = (list, note) => {
-    update((state) => {
-      state.periods = list;
+    update((current) => {
+      if (isShort) current.shortPeriods = list;
+      else current.periods = list;
     });
     render();
     renderPeriodsPanel(note);
   };
+
+  panel.querySelector('#tt-tabs').addEventListener('click', (event) => {
+    const tab = event.target.closest('.tab');
+    if (!tab) return;
+    editingSchedule = tab.dataset.schedule;
+    renderPeriodsPanel();
+  });
 
   panel.querySelector('#tt-apply').addEventListener('click', () => {
     const classMinutes = Number(panel.querySelector('#tt-class').value);
@@ -618,7 +626,10 @@ function renderPeriodsPanel(message = '') {
   });
 
   panel.querySelector('#tt-reset').addEventListener('click', () => {
-    savePeriods(buildPeriods(), '既定の時程に戻しました。');
+    savePeriods(
+      isShort ? DEFAULT_SHORT_PERIODS.map((entry) => ({ ...entry })) : buildPeriods(),
+      '既定の時程に戻しました。',
+    );
   });
 
   // 時限ごとの直接編集。1 つ直すたびに保存し、おかしい値はその場で知らせる。

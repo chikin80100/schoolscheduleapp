@@ -316,6 +316,63 @@ sent = await dispatchNotifications(
 assert.equal(sent.length, 1);
 assert.equal(sent[0].subject, '電子回路');
 
+/* ------------------------------------------------- 日課の変更と通知の連動 */
+
+// 「40分授業」の木曜。1限は 8:50 開始のままなので通知は 8:40（＝前日 23:40 UTC）
+const shortDay = {
+  ...state,
+  events: { '2026-09-03': [{ id: 's1', title: '40分授業', time: '', color: '' }] },
+  overrides: {},
+};
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('short', JSON.stringify(shortDay))]) },
+  new Date('2026-09-02T23:40:00Z'),
+);
+assert.equal(sent.length, 1);
+assert.equal(sent[0].period, 1);
+
+// 2限は 9:40 開始になるので、通知は 9:30（＝00:30 UTC）。既定の 9:40 では鳴らない
+const withSecond = {
+  ...shortDay,
+  template: { 4: { 1: '電子情報専攻:電子回路', 2: '普通科目:物理' } },
+};
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('short', JSON.stringify(withSecond))]) },
+  new Date('2026-09-03T00:30:00Z'),
+);
+assert.equal(sent.length, 1, '短縮の日の 2 限が通知されていません');
+assert.equal(sent[0].subject, '物理');
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('short', JSON.stringify(withSecond))]) },
+  new Date('2026-09-03T00:40:00Z'),
+);
+assert.equal(sent.length, 0, '短縮の日に通常の時刻で通知が出ています');
+
+// 「月曜日課」の木曜は、月曜の時間割で通知する
+const swapped = {
+  ...state,
+  events: { '2026-09-03': [{ id: 's2', title: '月曜振替授業', time: '', color: '' }] },
+  overrides: {},
+  template: { 1: { 1: '普通科目:数学Ⅲ' }, 4: { 1: '電子情報専攻:電子回路' } },
+};
+sent = await dispatchNotifications(
+  { ...env, DB: fakeDB([deviceRow('swap', JSON.stringify(swapped))]) },
+  thursdayMorning,
+);
+assert.equal(sent.length, 1);
+assert.equal(sent[0].subject, '数学Ⅲ', '振替先の曜日の教科になっていません');
+
+// 通知の本文に、いつもと違う日であることが入る
+const changedBody = buildNotification(
+  defaultPeriods,
+  { name: '数学Ⅲ', room: '', teacher: '', items: [], color: '' },
+  1,
+  '2026-09-03',
+  4,
+  '月曜日課',
+);
+assert.ok(changedBody.body.includes('（本日は 月曜日課）'), changedBody.body);
+
 /* -------------------------------------------------------------- 教科の構成 */
 
 // 「実習」は普通科目から各専攻へ移した

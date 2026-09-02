@@ -3,8 +3,20 @@
  * フロントエンドの表示と Worker の通知判定で同じロジックを使う。
  */
 
-import { DEFAULT_PERIODS, MAX_PERIODS, hasPeriod, parseTime } from './schedule.js';
+import {
+  DEFAULT_PERIODS,
+  MAX_PERIODS,
+  buildPeriods,
+  hasPeriod,
+  inferTimetableParams,
+  parseTime,
+  toPeriods,
+} from './schedule.js';
+import { detectDayPlan, isPlainDay } from './dayplan.js';
 import { resolveSubject } from './subjects.js';
+
+/** 短縮時程の既定値。授業を 45 分にし、開始時刻と休憩はそのまま。 */
+export const DEFAULT_SHORT_PERIODS = buildPeriods({ classMinutes: 45 });
 
 /** 空の保存データ。localStorage と D1 の両方で同じ形を使う。 */
 export function emptyState() {
@@ -16,6 +28,8 @@ export function emptyState() {
     overrides: {},
     events: {},
     periods: DEFAULT_PERIODS.map((entry) => ({ ...entry })),
+    shortPeriods: DEFAULT_SHORT_PERIODS.map((entry) => ({ ...entry })),
+    dayPlanOff: {},
     settings: { leadMinutes: 10, notifyEnabled: false, defaultView: 'week' },
   };
 }
@@ -127,6 +141,12 @@ export function normalizeState(raw) {
     if (items.length) events[dateKey] = items;
   }
 
+  // 自動判定を使わないことにした日。
+  const dayPlanOff = {};
+  for (const [dateKey, value] of Object.entries(raw.dayPlanOff ?? {})) {
+    if (DATE_KEY_PATTERN.test(dateKey) && value === true) dayPlanOff[dateKey] = true;
+  }
+
   const subjects = {};
   for (const [id, value] of Object.entries(raw.subjects ?? {})) {
     if (!value || typeof value !== 'object') continue;
@@ -149,12 +169,79 @@ export function normalizeState(raw) {
     overrides,
     events,
     periods: normalizePeriods(raw.periods) ?? DEFAULT_PERIODS.map((entry) => ({ ...entry })),
+    shortPeriods: normalizePeriods(raw.shortPeriods) ?? DEFAULT_SHORT_PERIODS.map((entry) => ({ ...entry })),
+    dayPlanOff,
     settings: {
       leadMinutes: Number.isFinite(lead) && lead > 0 && lead <= 60 ? Math.round(lead) : 10,
       notifyEnabled: settings.notifyEnabled === true,
       defaultView: settings.defaultView === 'month' ? 'month' : 'week',
     },
   };
+}
+
+/* ------------------------------------------------------------ その日の日課 */
+
+/**
+ * その日の日課を判定する。予定の名前から毎回導くので、
+ * 予定を消したり書き換えたりすれば判定も自然に消える（判定結果は保存しない）。
+ *
+ * @returns {{schedule: 'normal'|'short', followDay: number|null, labels: string[], off: boolean}}
+ */
+export function dayPlanFor(state, dateKey) {
+  if (!dateKey) return { schedule: 'normal', followDay: null, labels: [], off: false };
+  if (state.dayPlanOff?.[dateKey]) {
+    return { schedule: 'normal', followDay: null, labels: [], off: true };
+  }
+  const titles = (state.events?.[dateKey] ?? []).map((event) => event.title);
+  return { ...detectDayPlan(titles), off: false };
+}
+
+/**
+ * その日に実際に使う時程。
+ * 「40分授業」のように長さが分かっていれば、通常の時程の開始時刻と休憩をそのままに
+ * 授業の長さだけ差し替えて組み直す。長さの指定が無い短縮の日は、設定した短縮時程を使う。
+ */
+export function periodsFor(state, dateKey) {
+  const plan = dayPlanFor(state, dateKey);
+  if (plan.schedule !== 'short') return toPeriods(state.periods);
+  if (plan.classMinutes === null) return toPeriods(state.shortPeriods);
+  return toPeriods(
+    buildPeriods({ ...inferTimetableParams(toPeriods(state.periods)), classMinutes: plan.classMinutes }),
+  );
+}
+
+/**
+ * その日に実際に使う曜日。「月曜日課」の水曜なら 1（月）を返す。
+ * 時限数もこの曜日で決まるので、火曜日課の水曜は 7 限まで出る。
+ */
+export function effectiveDay(state, day, dateKey) {
+  return dayPlanFor(state, dateKey).followDay ?? day;
+}
+
+/**
+ * 取り込もうとしている予定のうち、日課の変更として読み取れる日を数える。
+ * 取り込み前の確認画面で「何日が短縮・振替になるか」を伝えるために使う。
+ *
+ * @param {{dateKey: string, title: string}[]} occurrences
+ * @returns {number} 対象になる日数
+ */
+export function detectedDayPlanCount(occurrences) {
+  const byDate = new Map();
+  for (const item of occurrences) {
+    if (!byDate.has(item.dateKey)) byDate.set(item.dateKey, []);
+    byDate.get(item.dateKey).push(item.title);
+  }
+  let count = 0;
+  for (const titles of byDate.values()) {
+    if (!isPlainDay(detectDayPlan(titles))) count += 1;
+  }
+  return count;
+}
+
+/** その日の日課が普段どおりでないなら、短い見出しを返す（例: 「短縮時程・火曜日課」）。 */
+export function dayPlanLabel(state, dateKey) {
+  const plan = dayPlanFor(state, dateKey);
+  return isPlainDay(plan) ? '' : plan.labels.join('・');
 }
 
 /** テンプレートに登録された科目 ID（上書きは見ない）。 */
@@ -169,12 +256,14 @@ export function templateSubjectId(state, day, period) {
  * @returns {{status: 'none'|'normal'|'replaced'|'cancelled', subject: object|null}}
  */
 export function lessonAt(state, day, period, dateKey = null) {
-  if (!hasPeriod(day, period)) return { status: 'none', subject: null };
+  // 「月曜日課」の日は、その曜日の時間割で引く。時限数もそちらに合わせる。
+  const source = effectiveDay(state, day, dateKey);
+  if (!hasPeriod(source, period)) return { status: 'none', subject: null };
 
   const override = dateKey ? state.overrides?.[dateKey]?.[String(period)] : null;
   if (override?.type === 'cancelled') return { status: 'cancelled', subject: null };
 
-  const id = override?.type === 'replace' ? override.subjectId : templateSubjectId(state, day, period);
+  const id = override?.type === 'replace' ? override.subjectId : templateSubjectId(state, source, period);
   if (!id) return { status: 'none', subject: null };
 
   return {

@@ -6,14 +6,8 @@
  */
 
 import { sendPush } from './webpush.js';
-import {
-  DAY_NAMES,
-  formatMinutes,
-  getPeriod,
-  periodStartingAfter,
-  periodsFrom,
-} from '../public/js/schedule.js';
-import { lessonAt, normalizeState } from '../public/js/timetable.js';
+import { DAY_NAMES, formatMinutes, getPeriod, periodStartingAfter } from '../public/js/schedule.js';
+import { dayPlanLabel, effectiveDay, lessonAt, normalizeState, periodsFor } from '../public/js/timetable.js';
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -64,13 +58,15 @@ export function jstNow(date = new Date()) {
 }
 
 /** 通知の文面を組み立てる。持ち物が空なら、その行は出さない。 */
-export function buildNotification(periods, subject, period, dateKey, day) {
+export function buildNotification(periods, subject, period, dateKey, day, planLabel = '') {
   const info = getPeriod(periods, period);
   const lines = [];
   const place = [subject.room, subject.teacher].filter(Boolean).join(' / ');
   if (place) lines.push(place);
   if (subject.items.length) lines.push(`持ち物: ${subject.items.join('、')}`);
   else lines.push('持ち物の登録はありません');
+  // 日課がいつもと違う日は、その旨も伝える。
+  if (planLabel) lines.push(`（本日は ${planLabel}）`);
 
   return {
     title: `次は ${subject.name}（${period}限 ${formatMinutes(info.startMinutes)}〜）`,
@@ -238,15 +234,17 @@ export async function dispatchNotifications(env, now = new Date()) {
     }
     if (!state.settings.notifyEnabled) continue;
 
-    // 時程は端末ごとに設定できるので、その端末の設定で判定する。
-    const periods = periodsFrom(state);
-    const period = periodStartingAfter(periods, day, minutes, state.settings.leadMinutes);
+    // 時程は端末ごとに設定でき、さらに短縮授業の日はその日だけ変わる。
+    // 「◯曜日課」の日は時限数もその曜日に合わせる必要があるので、引く曜日も差し替える。
+    const periods = periodsFor(state, dateKey);
+    const source = effectiveDay(state, day, dateKey);
+    const period = periodStartingAfter(periods, source, minutes, state.settings.leadMinutes);
     if (!period) continue;
 
     const lesson = lessonAt(state, day, period, dateKey);
     if (!lesson.subject) continue; // 未登録・休講は通知しない
 
-    const payload = buildNotification(periods, lesson.subject, period, dateKey, day);
+    const payload = buildNotification(periods, lesson.subject, period, dateKey, day, dayPlanLabel(state, dateKey));
     try {
       const result = await sendPush(
         { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },

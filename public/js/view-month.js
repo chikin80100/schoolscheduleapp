@@ -4,7 +4,7 @@
  */
 
 import { SCHOOL_DAYS, periodCountForDay, toDateKey } from './schedule.js';
-import { eventsOn, lessonAt } from './timetable.js';
+import { effectiveDay, eventsOn, lessonAt } from './timetable.js';
 import { escapeHtml } from './view-week.js';
 
 /** 予定の色が未指定のときに使う既定色。 */
@@ -34,8 +34,10 @@ export function lessonsOfDate(state, date) {
   const day = date.getDay();
   if (!SCHOOL_DAYS.includes(day)) return [];
   const key = toDateKey(date);
+  // 「火曜日課」の水曜のように、時限数も引く曜日に合わせる。
+  const count = periodCountForDay(effectiveDay(state, day, key));
   const lessons = [];
-  for (let period = 1; period <= periodCountForDay(day); period += 1) {
+  for (let period = 1; period <= count; period += 1) {
     lessons.push({ period, ...lessonAt(state, day, period, key) });
   }
   return lessons;

@@ -1,8 +1,8 @@
 /** 科目カードの編集と、日付ごとの上書き（休講・変更）を扱うシート。 */
 
-import { formatMinutes, getPeriod, periodsFrom, DAY_NAMES, fromDateKey } from './schedule.js';
+import { formatMinutes, getPeriod, DAY_NAMES, fromDateKey } from './schedule.js';
 import { MAJORS, PRESETS, presetsForMajor, resolveSubject } from './subjects.js';
-import { eventsOn, lessonAt } from './timetable.js';
+import { dayPlanFor, dayPlanLabel, eventsOn, lessonAt, periodsFor } from './timetable.js';
 import { getState, update } from './store.js';
 import { escapeHtml } from './view-week.js';
 import { DEFAULT_EVENT_COLOR, lessonsOfDate } from './view-month.js';
@@ -113,7 +113,7 @@ export function openSubjectEditor(id) {
 export function openCellMenu(day, period, dateKey) {
   const state = getState();
   const lesson = lessonAt(state, day, period, dateKey);
-  const info = getPeriod(periodsFrom(state), period);
+  const info = getPeriod(periodsFor(state, dateKey), period);
   const date = fromDateKey(dateKey);
   const title = `${date.getMonth() + 1}/${date.getDate()}（${DAY_NAMES[day]}） ${period}限 ${formatMinutes(info.startMinutes)}`;
 
@@ -209,7 +209,9 @@ export function openDaySheet(dateKey) {
         .join('')
     : '<p class="sheet-sub">予定はありません。</p>';
 
-  const periods = periodsFrom(state);
+  const periods = periodsFor(state, dateKey);
+  const planLabel = dayPlanLabel(state, dateKey);
+  const planOff = dayPlanFor(state, dateKey).off;
   const lessonRows = lessons.length
     ? lessons
         .map((lesson) => {
@@ -246,6 +248,22 @@ export function openDaySheet(dateKey) {
 
     <section class="settings-block">
       <h3>授業</h3>
+      ${
+        planLabel
+          ? `<div class="day-plan">
+              <span class="day-plan-label">${escapeHtml(planLabel)}</span>
+              <button type="button" class="button is-small" id="plan-off">いつもどおりに戻す</button>
+            </div>`
+          : ''
+      }
+      ${
+        planOff
+          ? `<div class="day-plan is-off">
+              <span class="day-plan-label">自動の変更を使わない設定です</span>
+              <button type="button" class="button is-small" id="plan-on">自動判定に戻す</button>
+            </div>`
+          : ''
+      }
       <div class="day-list">${lessonRows}</div>
     </section>`,
     (root) => {
@@ -256,6 +274,15 @@ export function openDaySheet(dateKey) {
           setOverride(dateKey, period, current?.type === 'cancelled' ? null : { type: 'cancelled' });
           openDaySheet(dateKey); // 再描画
         });
+      });
+
+      root.querySelector('#plan-off')?.addEventListener('click', () => {
+        setDayPlanOff(dateKey, true);
+        openDaySheet(dateKey);
+      });
+      root.querySelector('#plan-on')?.addEventListener('click', () => {
+        setDayPlanOff(dateKey, false);
+        openDaySheet(dateKey);
       });
 
       root.querySelector('#event-add').addEventListener('click', () => openEventEditor(dateKey, null));
@@ -369,6 +396,14 @@ export function removeEvent(dateKey, eventId) {
     if (!list) return;
     state.events[dateKey] = list.filter((item) => item.id !== eventId);
     if (!state.events[dateKey].length) delete state.events[dateKey];
+  });
+}
+
+/** その日だけ、予定名からの自動判定を使わないようにする。 */
+export function setDayPlanOff(dateKey, off) {
+  update((state) => {
+    if (off) state.dayPlanOff[dateKey] = true;
+    else delete state.dayPlanOff[dateKey];
   });
 }
 

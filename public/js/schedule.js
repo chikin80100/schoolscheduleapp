@@ -85,12 +85,44 @@ export const DEFAULT_PERIODS = buildPeriods();
  * @returns {{period: number, startMinutes: number, endMinutes: number}[]}
  */
 export function periodsFrom(state) {
-  const source = state?.periods?.length === MAX_PERIODS ? state.periods : DEFAULT_PERIODS;
+  return toPeriods(state?.periods);
+}
+
+/** "HH:MM" の配列を分単位に直す。値が足りなければ既定の時程を使う。 */
+export function toPeriods(list) {
+  const source = list?.length === MAX_PERIODS ? list : DEFAULT_PERIODS;
   return source.map((entry, index) => ({
     period: index + 1,
     startMinutes: parseTime(entry.start) ?? 0,
     endMinutes: parseTime(entry.end) ?? 0,
   }));
+}
+
+/**
+ * いま入っている時程から、まとめ入力の値を読み取る。
+ * 一番長い空きを昼休みとみなし、残りの空きのうち最も多いものを休憩とする。
+ * 設定画面の初期値と、「◯分授業」の日を組み直すときの土台に使う。
+ */
+export function inferTimetableParams(periods) {
+  const gaps = periods
+    .slice(0, -1)
+    .map((info, index) => ({ after: index + 1, minutes: periods[index + 1].startMinutes - info.endMinutes }));
+  const lunch = gaps.reduce((longest, gap) => (gap.minutes > longest.minutes ? gap : longest), gaps[0]);
+
+  const tally = new Map();
+  for (const gap of gaps) {
+    if (gap.after === lunch.after) continue;
+    tally.set(gap.minutes, (tally.get(gap.minutes) ?? 0) + 1);
+  }
+  const breakMinutes = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? DEFAULT_TIMETABLE.breakMinutes;
+
+  return {
+    firstStart: toTimeValue(periods[0].startMinutes),
+    classMinutes: periods[0].endMinutes - periods[0].startMinutes,
+    breakMinutes,
+    lunchMinutes: lunch.minutes,
+    lunchAfter: lunch.after,
+  };
 }
 
 /** その曜日の時限数を返す（授業のない曜日は 0）。 */
