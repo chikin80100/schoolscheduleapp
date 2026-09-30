@@ -12,6 +12,8 @@ import {
   toDateKey,
 } from './schedule.js';
 import { dayPlanLabel, effectiveDay, lessonAt, periodsFor } from './timetable.js';
+import { agendaHtml } from './event-list.js';
+import { escapeHtml } from './html.js';
 
 /** その週の月曜日を返す。 */
 export function mondayOf(date) {
@@ -42,13 +44,14 @@ function cellContent(lesson) {
     </span>`;
 }
 
-export function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char];
-  });
-}
+// 他のモジュールは以前からここの escapeHtml を使っているので、引き続き出しておく。
+export { escapeHtml };
 
-export function renderWeek(container, state, anchorDate) {
+/**
+ * 週のグリッドを描き、下に選んだ日の予定を並べる。
+ * selectedKey がその週に無ければ、今日（週内なら）か週の初日を選ぶ。
+ */
+export function renderWeek(container, state, anchorDate, selectedKey = null) {
   const monday = mondayOf(anchorDate);
   const today = toDateKey(new Date());
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
@@ -63,14 +66,25 @@ export function renderWeek(container, state, anchorDate) {
     return { day, date, key, source: effectiveDay(state, day, key), plan: dayPlanLabel(state, key) };
   });
 
+  const selected = dates.some(({ key }) => key === selectedKey)
+    ? selectedKey
+    : (dates.find(({ key }) => key === today) ?? dates[0]).key;
+
+  // 曜日の見出しをタップすると、下の「その日の予定」がその日に切り替わる。
   const head = dates
     .map(({ day, date, key, plan }) => {
       const isToday = key === today;
-      return `<div class="week-head${isToday ? ' is-today' : ''}${plan ? ' is-changed' : ''}">
+      const isSelected = key === selected;
+      const eventCount = (state.events?.[key] ?? []).filter((event) => !event.done).length;
+      return `<button type="button" class="week-head${isToday ? ' is-today' : ''}${plan ? ' is-changed' : ''}${
+        isSelected ? ' is-selected' : ''
+      }" data-select-date="${key}" aria-pressed="${isSelected}">
         <span class="week-head-day">${DAY_NAMES[day]}</span>
-        <span class="week-head-date">${date.getMonth() + 1}/${date.getDate()}</span>
+        <span class="week-head-date">${date.getMonth() + 1}/${date.getDate()}${
+          eventCount ? `<i class="week-head-dot" aria-label="予定 ${eventCount} 件"></i>` : ''
+        }</span>
         ${plan ? `<span class="week-head-plan">${escapeHtml(plan)}</span>` : ''}
-      </div>`;
+      </button>`;
     })
     .join('');
 
@@ -126,7 +140,9 @@ export function renderWeek(container, state, anchorDate) {
       <div class="week-head is-corner">時限</div>
       ${head}
       ${body.join('')}
-    </div>`;
+    </div>
+    ${agendaHtml(state, selected)}`;
+  return selected;
 }
 
 /** ヘッダーに出す週のラベル（例: 2026年9月 第1週）。 */

@@ -24,7 +24,9 @@ import { enableDrag } from './dnd.js';
 import {
   openCellMenu,
   openDaySheet,
+  openEventEditor,
   openSubjectEditor,
+  setEventDone,
   setTemplate,
   closeSheet,
 } from './editor.js';
@@ -68,6 +70,7 @@ let mode = getState().settings.defaultView;
 let anchor = new Date();
 let activeMajor = GENERAL_MAJOR;
 let selectedSubjectId = null; // タップで選択 → コマをタップして配置
+let agendaDate = null; // 週表示の下に予定を出す日（null なら今日か週の初日）
 
 /* --------------------------------------------------------- カードパレットの開閉 */
 
@@ -130,7 +133,7 @@ function render() {
   const state = getState();
   document.body.dataset.mode = mode;
   if (mode === 'week') {
-    renderWeek(view, state, anchor);
+    agendaDate = renderWeek(view, state, anchor, agendaDate);
     viewLabel.textContent = weekLabel(anchor);
   } else if (mode === 'month') {
     renderMonth(view, state, anchor);
@@ -195,6 +198,7 @@ document.getElementById('prev').addEventListener('click', () => shift(-1));
 document.getElementById('next').addEventListener('click', () => shift(1));
 document.getElementById('today').addEventListener('click', () => {
   anchor = new Date();
+  agendaDate = null; // 予定の欄も今日に戻す
   render();
 });
 
@@ -280,10 +284,37 @@ enableDrag(document.getElementById('app'), {
   },
 });
 
-// 月表示の日タップ（ドラッグ対象ではないので個別に拾う）。
+// 月表示の日タップと、週表示の見出し・「その日の予定」の操作（ドラッグ対象ではないので個別に拾う）。
 view.addEventListener('click', (event) => {
   const day = event.target.closest('.month-day');
-  if (day) openDaySheet(day.dataset.date);
+  if (day) {
+    openDaySheet(day.dataset.date);
+    return;
+  }
+
+  const head = event.target.closest('[data-select-date]');
+  if (head) {
+    agendaDate = head.dataset.selectDate;
+    render();
+    return;
+  }
+
+  const agenda = event.target.closest('.week-agenda');
+  if (!agenda) return;
+  // 週表示から開いた編集は、閉じたら週表示に戻る。
+  const backToWeek = { onDone: closeSheet };
+  if (event.target.closest('[data-agenda-add]')) {
+    openEventEditor(agenda.dataset.date, null, backToWeek);
+    return;
+  }
+  const edit = event.target.closest('[data-edit-event]');
+  if (edit) openEventEditor(agenda.dataset.date, edit.dataset.editEvent, backToWeek);
+});
+
+view.addEventListener('change', (event) => {
+  const checkbox = event.target.closest('.week-agenda [data-done-event]');
+  if (!checkbox) return;
+  setEventDone(checkbox.closest('.week-agenda').dataset.date, checkbox.dataset.doneEvent, checkbox.checked);
 });
 
 // パレットのカードを長押しせずに編集したいとき用。
@@ -551,13 +582,17 @@ function importCalendar(occurrences) {
   update((state) => {
     for (const item of occurrences) {
       const list = state.events[item.dateKey] ?? (state.events[item.dateKey] = []);
+      const id = `ics:${item.uid}:${item.dateKey}`;
+      const index = list.findIndex((existing) => existing.id === id);
+      // 読み直しても、手元で付けた優先度と「済み」は残す。
       const event = {
-        id: `ics:${item.uid}:${item.dateKey}`,
+        id,
         title: item.title,
         time: item.time,
         color: IMPORTED_EVENT_COLOR,
+        priority: index >= 0 ? list[index].priority : '',
+        done: index >= 0 ? list[index].done : false,
       };
-      const index = list.findIndex((existing) => existing.id === event.id);
       if (index >= 0) list[index] = event;
       else list.push(event);
     }

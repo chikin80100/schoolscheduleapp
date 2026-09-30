@@ -2,10 +2,11 @@
 
 import { formatMinutes, getPeriod, DAY_NAMES, fromDateKey } from './schedule.js';
 import { MAJORS, PRESETS, presetsForMajor, resolveSubject } from './subjects.js';
-import { dayPlanFor, dayPlanLabel, eventsOn, lessonAt, periodsFor } from './timetable.js';
+import { EVENT_PRIORITIES, PRIORITY_LABELS, dayPlanFor, dayPlanLabel, eventsOn, lessonAt, periodsFor } from './timetable.js';
 import { getState, update } from './store.js';
 import { escapeHtml } from './view-week.js';
 import { DEFAULT_EVENT_COLOR, lessonsOfDate } from './view-month.js';
+import { eventRow } from './event-list.js';
 
 const dialog = document.getElementById('sheet');
 const sheetBody = document.getElementById('sheet-body');
@@ -195,18 +196,7 @@ export function openDaySheet(dateKey) {
 
   const events = eventsOn(state, dateKey);
   const eventRows = events.length
-    ? events
-        .map(
-          (event) => `<div class="event-row" style="--event-color:${escapeHtml(event.color || DEFAULT_EVENT_COLOR)}">
-            <button type="button" class="event-main" data-edit-event="${escapeHtml(event.id)}">
-              <span class="event-time">${escapeHtml(event.time || '終日')}</span>
-              <span class="event-title">${escapeHtml(event.title)}</span>
-            </button>
-            <button type="button" class="icon-button is-quiet" data-delete-event="${escapeHtml(event.id)}"
-              aria-label="${escapeHtml(event.title)} を削除">✕</button>
-          </div>`,
-        )
-        .join('')
+    ? events.map((event) => eventRow(event, { deletable: true })).join('')
     : '<p class="sheet-sub">予定はありません。</p>';
 
   const periods = periodsFor(state, dateKey);
@@ -291,6 +281,13 @@ export function openDaySheet(dateKey) {
         button.addEventListener('click', () => openEventEditor(dateKey, button.dataset.editEvent));
       });
 
+      root.querySelectorAll('[data-done-event]').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          setEventDone(dateKey, checkbox.dataset.doneEvent, checkbox.checked);
+          openDaySheet(dateKey); // 済んだものを後ろへ並べ直す
+        });
+      });
+
       root.querySelectorAll('[data-delete-event]').forEach((button) => {
         button.addEventListener('click', () => {
           removeEvent(dateKey, button.dataset.deleteEvent);
@@ -301,11 +298,22 @@ export function openDaySheet(dateKey) {
   );
 }
 
-/** 予定の追加・編集。保存すると日のシートに戻る。 */
-export function openEventEditor(dateKey, eventId) {
+/**
+ * 予定の追加・編集。保存かキャンセルで onDone を呼ぶ（既定では日のシートに戻る）。
+ * 週表示の「その日の予定」から開いたときは、シートを閉じて週表示に戻す。
+ */
+export function openEventEditor(dateKey, eventId, { onDone = () => openDaySheet(dateKey) } = {}) {
   const date = fromDateKey(dateKey);
   const existing = eventId ? eventsOn(getState(), dateKey).find((e) => e.id === eventId) : null;
   const color = existing?.color || DEFAULT_EVENT_COLOR;
+  const priority = existing?.priority ?? '';
+
+  const priorityButtons = ['', ...[...EVENT_PRIORITIES].reverse()]
+    .map(
+      (value) => `<button type="button" class="segment-button${value === priority ? ' is-active' : ''}"
+        data-priority="${value}" aria-pressed="${value === priority}">${value ? PRIORITY_LABELS[value] : 'なし'}</button>`,
+    )
+    .join('');
 
   const swatches = COLOR_CHOICES.map(
     (choice) => `<button type="button" class="swatch${choice === color ? ' is-active' : ''}"
@@ -325,6 +333,10 @@ export function openEventEditor(dateKey, eventId) {
       <input id="event-time" type="time" value="${escapeHtml(existing?.time ?? '')}">
     </label>
     <div class="field">
+      <span class="field-label">優先度</span>
+      <div class="segment is-inline" id="event-priority" role="group" aria-label="優先度">${priorityButtons}</div>
+    </div>
+    <div class="field">
       <span class="field-label">色</span>
       <div class="swatches">${swatches}</div>
     </div>
@@ -334,6 +346,16 @@ export function openEventEditor(dateKey, eventId) {
     </div>`,
     (root) => {
       let picked = color;
+      let pickedPriority = priority;
+      root.querySelectorAll('[data-priority]').forEach((button) => {
+        button.addEventListener('click', () => {
+          pickedPriority = button.dataset.priority;
+          root.querySelectorAll('[data-priority]').forEach((b) => {
+            b.classList.toggle('is-active', b === button);
+            b.setAttribute('aria-pressed', String(b === button));
+          });
+        });
+      });
       root.querySelectorAll('.swatch').forEach((swatch) => {
         swatch.addEventListener('click', () => {
           picked = swatch.dataset.color;
@@ -353,12 +375,14 @@ export function openEventEditor(dateKey, eventId) {
           title,
           time: root.querySelector('#event-time').value,
           color: picked,
+          priority: pickedPriority,
+          done: existing?.done ?? false,
         });
-        openDaySheet(dateKey);
+        onDone();
       };
 
       root.querySelector('#event-save').addEventListener('click', save);
-      root.querySelector('#event-cancel').addEventListener('click', () => openDaySheet(dateKey));
+      root.querySelector('#event-cancel').addEventListener('click', onDone);
       root.querySelector('#event-title').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') save();
       });
@@ -386,6 +410,14 @@ export function saveEvent(dateKey, event) {
     const index = list.findIndex((item) => item.id === event.id);
     if (index >= 0) list[index] = event;
     else list.push(event);
+  });
+}
+
+/** 予定の「済み」を付け外しする。 */
+export function setEventDone(dateKey, eventId, done) {
+  update((state) => {
+    const event = state.events[dateKey]?.find((item) => item.id === eventId);
+    if (event) event.done = done;
   });
 }
 
