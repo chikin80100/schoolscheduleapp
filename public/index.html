@@ -12,6 +12,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="時間割">
+    <script>
+      // 描画前にテーマを当てて、読み込み中に逆の色が一瞬出ないようにする。
+      try {
+        const theme = localStorage.getItem('timetable.theme');
+        if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     <link rel="stylesheet" href="/css/styles.css">
   </head>
   <body data-mode="week">
@@ -23,6 +30,7 @@
             <button type="button" class="segment-button is-active" data-mode="week" aria-pressed="true">週</button>
             <button type="button" class="segment-button" data-mode="month" aria-pressed="false">月</button>
           </div>
+          <button type="button" class="icon-button" id="theme-toggle" aria-label="ライトモードにする">☀</button>
           <button type="button" class="icon-button" id="settings" aria-label="設定">⚙</button>
         </div>
         <div class="topbar-row is-nav">
