@@ -30,9 +30,14 @@ export function emptyState() {
     periods: DEFAULT_PERIODS.map((entry) => ({ ...entry })),
     shortPeriods: DEFAULT_SHORT_PERIODS.map((entry) => ({ ...entry })),
     dayPlanOff: {},
+    notes: [],
     settings: { leadMinutes: 10, notifyEnabled: false, defaultView: 'week' },
   };
 }
+
+/** メモの上限。同期のたびに丸ごと送るので、際限なく膨らまないようにする。 */
+export const MAX_NOTES = 300;
+export const MAX_NOTE_LENGTH = 10000;
 
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -83,6 +88,25 @@ function normalizeEvent(raw) {
     time: typeof raw.time === 'string' && TIME_PATTERN.test(raw.time) ? raw.time : '',
     color: typeof raw.color === 'string' && raw.color ? raw.color : '',
   };
+}
+
+/** メモ 1 件を安全な形に整える。中身が空のものは捨てる。 */
+function normalizeNote(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.body !== 'string') return null;
+  if (!raw.body.trim()) return null;
+  const updatedAt = Number(raw.updatedAt);
+  const createdAt = Number(raw.createdAt);
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : crypto.randomUUID(),
+    body: raw.body.slice(0, MAX_NOTE_LENGTH),
+    createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : Number.isFinite(updatedAt) ? updatedAt : 0,
+    updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0,
+  };
+}
+
+/** メモを新しく更新した順に並べて返す。 */
+export function sortedNotes(state) {
+  return [...(state.notes ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 /**
@@ -158,6 +182,13 @@ export function normalizeState(raw) {
     };
   }
 
+  const seenNotes = new Set();
+  const notes = (Array.isArray(raw.notes) ? raw.notes : [])
+    .map(normalizeNote)
+    .filter((note) => note && !seenNotes.has(note.id) && seenNotes.add(note.id))
+    .sort((a, b) => b.updatedAt - a.updatedAt) // 上限を超えたら古いものから落とす
+    .slice(0, MAX_NOTES);
+
   const settings = raw.settings ?? {};
   const lead = Number(settings.leadMinutes);
 
@@ -171,6 +202,7 @@ export function normalizeState(raw) {
     periods: normalizePeriods(raw.periods) ?? DEFAULT_PERIODS.map((entry) => ({ ...entry })),
     shortPeriods: normalizePeriods(raw.shortPeriods) ?? DEFAULT_SHORT_PERIODS.map((entry) => ({ ...entry })),
     dayPlanOff,
+    notes,
     settings: {
       leadMinutes: Number.isFinite(lead) && lead > 0 && lead <= 60 ? Math.round(lead) : 10,
       notifyEnabled: settings.notifyEnabled === true,

@@ -19,6 +19,7 @@ import {
 } from './store.js';
 import { renderWeek, weekLabel, mondayOf, escapeHtml } from './view-week.js';
 import { renderMonth, monthLabel } from './view-month.js';
+import { renderMemo, resetMemo } from './view-memo.js';
 import { enableDrag } from './dnd.js';
 import {
   openCellMenu,
@@ -131,11 +132,13 @@ function render() {
   if (mode === 'week') {
     renderWeek(view, state, anchor);
     viewLabel.textContent = weekLabel(anchor);
-  } else {
+  } else if (mode === 'month') {
     renderMonth(view, state, anchor);
     viewLabel.textContent = monthLabel(anchor);
+  } else {
+    renderMemo(view, state);
   }
-  document.querySelectorAll('.segment-button').forEach((button) => {
+  document.querySelectorAll('.topbar .segment-button').forEach((button) => {
     button.classList.toggle('is-active', button.dataset.mode === mode);
     button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
   });
@@ -195,13 +198,18 @@ document.getElementById('today').addEventListener('click', () => {
   render();
 });
 
-document.querySelectorAll('.segment-button').forEach((button) => {
+document.querySelectorAll('.topbar .segment-button').forEach((button) => {
   button.addEventListener('click', () => {
+    if (button.dataset.mode === mode) return;
+    if (mode === 'memo') resetMemo();
     mode = button.dataset.mode;
-    update((state) => {
-      state.settings.defaultView = mode;
-    });
-    render();
+    // 起動時に開く表示として覚えるのは時間割だけ。メモは毎回ここから開く。
+    if (mode === 'memo') render();
+    else {
+      update((state) => {
+        state.settings.defaultView = mode;
+      });
+    }
   });
 });
 
