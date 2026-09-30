@@ -1,6 +1,6 @@
 /* Service Worker: アプリシェルのキャッシュとプッシュ通知の表示。 */
 
-const CACHE = 'timetable-v9';
+const CACHE = 'timetable-v10';
 const SHELL = [
   '/',
   '/index.html',
@@ -16,6 +16,7 @@ const SHELL = [
   '/js/subjects.js',
   '/js/theme.js',
   '/js/timetable.js',
+  '/js/view-memo.js',
   '/js/view-month.js',
   '/js/view-week.js',
   '/manifest.webmanifest',
