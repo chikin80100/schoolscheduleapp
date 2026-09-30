@@ -1,4 +1,7 @@
-/* 時間割アプリのスタイル。ダークを基調に、システムのライト設定にも追従する。 */
+/*
+ * 時間割アプリのスタイル。ダークを基調に、システムのライト設定にも追従する。
+ * 設定で固定したときは <html data-theme="light|dark"> がシステムの設定より優先される。
+ */
 
 :root {
   color-scheme: light dark;
@@ -17,7 +20,7 @@
 }
 
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme='dark']) {
     --bg: #f4f6f9;
     --surface: #ffffff;
     --surface-2: #eef1f5;
@@ -26,6 +29,20 @@
     --text-dim: #5d6b7a;
   }
 }
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #d7dde5;
+  --text: #16202b;
+  --text-dim: #5d6b7a;
+}
+
+/* 入力欄やスクロールバーなど、ブラウザ標準の部品の色も合わせる。 */
+:root[data-theme='dark'] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -128,6 +145,9 @@ body.is-dragging-active {
   line-height: 1;
   cursor: pointer;
 }
+
+/* 押すと切り替わる先のテーマを示す（ダーク表示中は ☀、ライト表示中は ☾）。 */
+#theme-toggle { font-size: 16px; }
 
 .button {
   padding: 8px 14px;
@@ -560,6 +580,8 @@ body[data-drawer='closed'] .drawer-toggle-mark { transform: rotate(-90deg); }
 .swatch.is-reset { width: auto; padding: 0 12px; border-radius: 999px; background: var(--surface-2); color: var(--text); font-size: 12px; border-color: var(--border); }
 
 .sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+.segment.is-inline { display: inline-flex; margin-left: 0; }
 
 .menu { display: flex; flex-direction: column; gap: 6px; }
 

@@ -48,6 +48,7 @@ import {
 } from './schedule.js';
 import { DEFAULT_SHORT_PERIODS, detectedDayPlanCount } from './timetable.js';
 import { parseICalendar } from './ical.js';
+import { effectiveTheme, getThemePreference, onThemeChange, setThemePreference, toggleTheme } from './theme.js';
 
 /** 取り込んだ予定の色。手で作った予定と見分けられるようにそろえる。 */
 const IMPORTED_EVENT_COLOR = 'hsl(140 42% 40%)';
@@ -96,6 +97,31 @@ drawerToggle.addEventListener('click', () => {
   localStorage.setItem(DRAWER_KEY, drawerOpen ? '1' : '0');
   renderDrawer();
 });
+
+/* -------------------------------------------------------------- テーマの切り替え */
+
+const themeToggle = document.getElementById('theme-toggle');
+
+function renderThemeToggle() {
+  const dark = effectiveTheme() === 'dark';
+  themeToggle.textContent = dark ? '☀' : '☾';
+  themeToggle.setAttribute('aria-label', dark ? 'ライトモードにする' : 'ダークモードにする');
+  themeToggle.title = themeToggle.getAttribute('aria-label');
+}
+
+themeToggle.addEventListener('click', toggleTheme);
+
+onThemeChange(() => {
+  renderThemeToggle();
+  // 設定を開いていれば、選択中の表示も合わせる。
+  const preference = getThemePreference();
+  sheetBody.querySelectorAll('#theme-choice .segment-button').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.theme === preference);
+    button.setAttribute('aria-pressed', String(button.dataset.theme === preference));
+  });
+});
+
+renderThemeToggle();
 
 /* ------------------------------------------------------------------ 描画 */
 
@@ -262,6 +288,7 @@ palette.addEventListener('dblclick', (event) => {
 
 function openSettings() {
   const state = getState();
+  const themePreference = getThemePreference();
   const majorChecks = SPECIALIZED_MAJORS.map(
     (major) => `<label class="check">
       <input type="checkbox" value="${escapeHtml(major)}" ${state.majors.includes(major) ? 'checked' : ''}>
@@ -275,6 +302,21 @@ function openSettings() {
       <button type="button" class="icon-button" data-close aria-label="閉じる">✕</button>
     </header>
     <div class="sheet-content">
+      <section class="settings-block">
+        <h3>表示</h3>
+        <p class="sheet-sub">「自動」は端末のライト／ダークの設定に合わせます。</p>
+        <div class="segment is-inline" id="theme-choice" role="group" aria-label="テーマ">${[
+          ['system', '自動'],
+          ['light', 'ライト'],
+          ['dark', 'ダーク'],
+        ]
+          .map(
+            ([value, label]) => `<button type="button" class="segment-button${themePreference === value ? ' is-active' : ''}"
+              data-theme="${value}" aria-pressed="${themePreference === value}">${label}</button>`,
+          )
+          .join('')}</div>
+      </section>
+
       <section class="settings-block">
         <h3>専攻</h3>
         <p class="sheet-sub">選んだ専攻の教科がパレットに並びます。</p>
@@ -331,6 +373,11 @@ function openSettings() {
   sheetBody.querySelector('[data-close]').addEventListener('click', () => dialog.close());
   renderSyncPanel();
   renderPeriodsPanel();
+
+  sheetBody.querySelector('#theme-choice').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-theme]');
+    if (button) setThemePreference(button.dataset.theme);
+  });
 
   sheetBody.querySelector('#major-checks').addEventListener('change', (event) => {
     const checked = [...sheetBody.querySelectorAll('#major-checks input:checked')].map((i) => i.value);
