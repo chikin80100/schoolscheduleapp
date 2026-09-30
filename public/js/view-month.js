@@ -5,7 +5,7 @@
 
 import { SCHOOL_DAYS, periodCountForDay, toDateKey } from './schedule.js';
 import { effectiveDay, eventsOn, lessonAt } from './timetable.js';
-import { escapeHtml } from './view-week.js';
+import { escapeHtml } from './html.js';
 
 /** 予定の色が未指定のときに使う既定色。 */
 export const DEFAULT_EVENT_COLOR = 'hsl(212 58% 50%)';
@@ -60,8 +60,11 @@ export function renderMonth(container, state, anchorDate) {
 
     const chips = eventsOn(state, key)
       .map(
-        (event) => `<span class="month-event" style="--event-color:${escapeHtml(event.color || DEFAULT_EVENT_COLOR)}">
-          ${event.time ? `<b>${escapeHtml(event.time)}</b>` : ''}${escapeHtml(event.title)}</span>`,
+        // 狭いマスなので、優先度は色の点、済んだ予定は ✓ と打ち消し線で表す。
+        (event) => `<span class="month-event${event.done ? ' is-done' : ''}"
+          style="--event-color:${escapeHtml(event.color || DEFAULT_EVENT_COLOR)}">${
+            event.done ? '✓' : event.priority ? `<i class="priority-dot is-${event.priority}"></i>` : ''
+          }${event.time ? `<b>${escapeHtml(event.time)}</b>` : ''}${escapeHtml(event.title)}</span>`,
       )
       .join('');
 

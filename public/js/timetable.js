@@ -77,6 +77,15 @@ function normalizePeriods(raw) {
   return periods;
 }
 
+/** 予定の優先度。'' は「なし」。並べ替えでは高いものから出す。 */
+export const EVENT_PRIORITIES = ['high', 'medium', 'low'];
+export const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
+
+function priorityRank(priority) {
+  const index = EVENT_PRIORITIES.indexOf(priority);
+  return index < 0 ? EVENT_PRIORITIES.length : index;
+}
+
 /** 予定 1 件を安全な形に整える。題名が無いものは捨てる。 */
 function normalizeEvent(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -87,6 +96,8 @@ function normalizeEvent(raw) {
     title: title.slice(0, 80),
     time: typeof raw.time === 'string' && TIME_PATTERN.test(raw.time) ? raw.time : '',
     color: typeof raw.color === 'string' && raw.color ? raw.color : '',
+    priority: EVENT_PRIORITIES.includes(raw.priority) ? raw.priority : '',
+    done: raw.done === true,
   };
 }
 
@@ -111,15 +122,19 @@ export function sortedNotes(state) {
 
 /**
  * その日の予定を並べ替えて返す。
- * 時刻の無いもの（終日）を先に、時刻のあるものはその順に並べる。
+ * 済んだものは後ろへ回し、残りは時刻の無いもの（終日）を先に、時刻のあるものはその順に並べる。
+ * 同じ時刻どうしは優先度の高いものを先にする。
  */
 export function eventsOn(state, dateKey) {
   const list = state.events?.[dateKey] ?? [];
   return [...list].sort((a, b) => {
-    if (!a.time && !b.time) return 0;
-    if (!a.time) return -1;
-    if (!b.time) return 1;
-    return a.time.localeCompare(b.time);
+    if (Boolean(a.done) !== Boolean(b.done)) return a.done ? 1 : -1;
+    if (a.time !== b.time) {
+      if (!a.time) return -1;
+      if (!b.time) return 1;
+      return a.time.localeCompare(b.time);
+    }
+    return priorityRank(a.priority) - priorityRank(b.priority);
   });
 }
 
